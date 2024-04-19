@@ -1,6 +1,7 @@
 import { Disposable } from "../utils/disposables";
 import { ITransaction, autorun, observableValue, transaction } from "../utils/observables/observable";
 import { toDisposable } from "../utils/observables/observableInternal/lifecycle";
+import { ErrorMessage } from "../utils/utils";
 import { CdpClient } from "./CdpClient";
 import { DebugSessionProxy } from "./DebugSessionService";
 import { IProperty, IPropertyFactory } from "./debugService";
@@ -80,6 +81,7 @@ export class JsDebugSession extends Disposable {
                 return;
             }
             transaction(tx => {
+                /** @description End update (async) */
                 this.updateProperty(prop, payload.result, tx);
             });
         });
@@ -108,6 +110,7 @@ export class JsDebugSession extends Disposable {
         const referencesToRead = [...this._readUpdates].filter(r => !this._writeUpdates.has(r));
 
         transaction(tx => {
+            /** @description Start update */
             for (const r of referencesToRead) {
                 r.state.set(r.didUpdate ? 'initializing' : 'updating', tx);
                 r.value.set(undefined, tx);
@@ -120,6 +123,17 @@ export class JsDebugSession extends Disposable {
         await this._cdpInitializationPromise;
 
         const tryEvalImpl = function tryEvalImpl(fn: () => unknown, expression: string, promiseResolvedBinding: (data: PromiseResolvedBindingNamePayload) => void): EvaluationResult {
+            const g = (globalThis as { $$vscodeDebugValueEditor?: { cancellationCallbacksByExpr: Map<string, () => void> } });
+            if (!g.$$vscodeDebugValueEditor) {
+                g.$$vscodeDebugValueEditor = { cancellationCallbacksByExpr: new Map() };
+            }
+
+            const existingCancellationCallback = g.$$vscodeDebugValueEditor.cancellationCallbacksByExpr.get(expression);
+            if (existingCancellationCallback) {
+                g.$$vscodeDebugValueEditor.cancellationCallbacksByExpr.delete(expression);
+                existingCancellationCallback();
+            }
+
             try {
                 let data = fn();
                 let fileExtension: string | undefined = undefined;
@@ -128,9 +142,15 @@ export class JsDebugSession extends Disposable {
                         fileExtension = data.$fileExtension as any;
                         data = { ...data };
                         delete (data as any).$fileExtension;
-                    } else if ('then' in data && data.then === 'function') {
-                        const p = data as Promise<unknown>;
+                    } else if (typeof (data as any).then === 'function') {
+                        const dataAsPromise = data as Promise<unknown>;
+                        let cancelled = false;
+                        g.$$vscodeDebugValueEditor.cancellationCallbacksByExpr.set(expression, () => {
+                            cancelled = true;
+                        });
                         function handlePromiseResult(fn: () => unknown) {
+                            if (cancelled) { return; }
+
                             try {
                                 promiseResolvedBinding({
                                     expression,
@@ -140,7 +160,7 @@ export class JsDebugSession extends Disposable {
                                 console.error('unexpected error while sending notification for resolved promise', e);
                             }
                         }
-                        p.then(
+                        dataAsPromise.then(
                             data => handlePromiseResult(() => data),
                             err => handlePromiseResult(() => { throw err; })
                         );
@@ -153,14 +173,41 @@ export class JsDebugSession extends Disposable {
             }
         }
 
+        function transformValue(newValue: string, expression: string, getExprValue: () => unknown, variableType: JsProperty['valueType']) {
+            if (variableType === undefined) {
+                try {
+                    const v = getExprValue();
+                    if (typeof v === 'string') {
+                        variableType = 'string';
+                    } else {
+                        variableType = 'json';
+                    }
+                } catch (e) {
+                    // ignore
+                    variableType = 'json';
+                }
+            }
+            if (variableType === 'string') {
+                return newValue;
+            } else if (variableType === 'json') {
+                try {
+                    return JSON.parse(newValue);
+                } catch (e) {
+                    throw new Error(`Could not parse new json value for expression "${expression}"`);
+                }
+            }
+        }
+
         const expr = `
         (() => {
             ${tryEvalImpl.toString()}
             function tryEval(fn, expression) {
-                tryEvalImpl(fn, expression, arg => ${promiseResolvedBindingName}(JSON.stringify(arg)))
+                return tryEvalImpl(fn, expression, arg => ${promiseResolvedBindingName}(JSON.stringify(arg)));
             }
+            
+            ${transformValue.toString()}
             ${referencesToWrite.map(w => `
-            ${w.ref.expression} = ${JSON.stringify(JSON.parse(w.newValue))};
+            ${w.ref.expression} = transformValue(${JSON.stringify(w.newValue)}, ${JSON.stringify(w.ref.expression)}, () => ${w.ref.expression}, ${JSON.stringify(w.ref.valueType)});
         `).join('\n')}
 
             const values = [${referencesToRead.map(r => {
@@ -171,27 +218,35 @@ export class JsDebugSession extends Disposable {
         })()
         `;
 
-        const result = await this.debugSession.evaluate({
-            expression: expr,
-            context: 'copy',
-            frameId: stackFrame,
-        });
+        try {
+            const result = await this.debugSession.evaluate({
+                expression: expr,
+                context: 'copy',
+                frameId: stackFrame,
+            });
 
-        // Only clear after successful evaluation. TODO: Consider per-entry errors!
-        this._readUpdates.clear();
-        this._writeUpdates.clear();
+            // Only clear after successful evaluation. TODO: Consider per-entry errors!
+            this._readUpdates.clear();
+            this._writeUpdates.clear();
 
-        const data = JSON.parse(result.result) as EvaluationResult[];
+            const data = JSON.parse(result.result) as EvaluationResult[];
 
-        // Something to think about: the actual value might be different from the set value!
-        // But ignoring the actual set value might be the right thing to do (to prevent flickering and weird endless-loops).
-        transaction(tx => {
-            for (let i = 0; i < referencesToRead.length; i++) {
-                const ref = referencesToRead[i];
-                const res = data[i];
-                this.updateProperty(ref, res, tx);
-            }
-        });
+            // Something to think about: the actual value might be different from the set value!
+            // But ignoring the actual set value might be the right thing to do (to prevent flickering and weird endless-loops).
+            transaction(tx => {
+                /** @description Finish update */
+                for (let i = 0; i < referencesToRead.length; i++) {
+                    const ref = referencesToRead[i];
+                    const res = data[i];
+                    this.updateProperty(ref, res, tx);
+                }
+            });
+        } catch (e) {
+            console.error('Error while evaluating expression', e);
+            ErrorMessage.showIfError(new ErrorMessage('Error while evaluating expression: ' + e));
+
+            this._writeUpdates.clear();
+        }
     }
 
     private updateProperty(ref: JsProperty, res: EvaluationResult, tx: ITransaction): void {
@@ -201,7 +256,22 @@ export class JsDebugSession extends Disposable {
             ref.value.set(undefined, tx);
         } else if ('value' in res) {
             ref.state.set('upToDate', tx);
-            ref.value.set(JSON.stringify(res.value, undefined, 4), tx);
+            if (ref.valueType === undefined) {
+                if (typeof res.value === 'string') {
+                    ref.valueType = 'string';
+                } else {
+                    ref.valueType = 'json';
+                }
+            }
+
+            let value: string;
+            if (ref.valueType === 'json') {
+                value = JSON.stringify(res.value);
+            } else {
+                value = res.value + '';
+            }
+
+            ref.value.set(value, tx);
             ref.error.set(undefined, tx);
             ref.fileExtension.set(res.fileExtension, tx);
         } else if ('updating' in res) {
@@ -260,10 +330,12 @@ export class JsProperty extends Disposable implements IProperty {
     public readonly error = observableValue<string | undefined>(this, undefined);
     public readonly state = observableValue<'initializing' | 'upToDate' | 'updating' | 'error'>(this, 'initializing');
 
+    public valueType: 'string' | 'json' | undefined = undefined;
+
     constructor(
         public readonly debugSession: JsDebugSession,
         public readonly expression: string,
-        initialValue: string | undefined
+        initialValue: string | undefined,
     ) {
         super();
 

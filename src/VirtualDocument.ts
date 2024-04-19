@@ -28,6 +28,7 @@ export class SyncedTextDocument extends Disposable {
 
         this._register(
             autorun(reader => {
+                /** @description Update text document */
                 this._setValue(_source.value.read(reader));
             })
         );
