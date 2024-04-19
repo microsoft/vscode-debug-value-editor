@@ -1,0 +1,63 @@
+{
+	"name": "debug-value-editor",
+	"private": true,
+	"displayName": "JS Debug Value Editor",
+	"description": "This extension allows to edit and view values of a debugee with a full text editor. Currently only supports javascript debug adaptors.",
+	"keywords": [
+		"debugger",
+		"debug",
+		"editor",
+		"javascript"
+	],
+	"icon": "docs/logo.drawio.png",
+	"version": "0.1.0",
+	"license": "MIT",
+	"publisher": "ms-vscode",
+	"enabledApiProposals": [],
+	"readme": "./README.md",
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"onFileSystem:debug-value",
+		"onLanguage:javascript",
+		"onLanguage:typescript"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/microsoft/vscode-debug-value-editor"
+	},
+	"main": "./dist/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "debug-value-editor.edit-property",
+				"title": "Edit Property",
+				"category": "Debug Value Editor"
+			}
+		]
+	},
+	"scripts": {
+		"pub": "vsce publish --yarn",
+		"package": "vsce package --yarn",
+		"vscode:prepublish": "",
+		"build-ts": "tsc -p ./",
+		"build": "yarn run build-ts && yarn run package",
+		"dev": "tsc -watch -p ./",
+		"get-types": "dts dev"
+	},
+	"devDependencies": {
+		"@types/node": "^13.13.5",
+		"@types/vscode": "^1.85.0",
+		"@types/ws": "^8.5.10",
+		"@vscode/dts": "^0.4.0",
+		"tslint": "^6.1.2",
+		"typescript": "^5.4.3"
+	},
+	"dependencies": {
+		"ws": "^8.16.0"
+	}
+}

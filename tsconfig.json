@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+		"module": "commonjs",
+		"target": "ES2022",
+		"outDir": "dist",
+		"lib": ["ES2022"],
+		"sourceMap": true,
+		"rootDir": "src",
+		"strict": true,
+		"noUnusedLocals": true,
+		"experimentalDecorators": true,
+		"useDefineForClassFields": false,
+		"skipLibCheck": true
+	},
+	"include": ["./src/**/*", "./vscode.proposed.debugVisualization.d.ts"]
+}

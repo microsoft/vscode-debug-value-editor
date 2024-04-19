@@ -1,14 +1,34 @@
-# Project
+# JS Debug Value Editor
 
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
+This extension allows to edit and view values of a debugee with a full text editor.
 
-As the maintainer of this project, please make a few updates:
+Currently only supports javascript debug adaptors.
 
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+## Usage
+
+* Put a property access expression like this into the source code:
+```ts
+globalThis.playground.inputOptions; // editable
+```
+
+* By doing that, a code lens appears:
+
+![Demo](./docs/demo_code-lens.png)
+
+* Start a JS debug session
+* Click on the code lens to view and edit the runtime value of the property. This can be done while the debug session is paused or running. When the debug session is running, the expression must be evaluatable in the global context.
+* If the property returns an object that contains a `$fileExtension` property, the opened document will consider that file extension:
+```
+class MyPlayground {
+    inputOptions = {
+        $fileExtension: 'txt',
+        value: {
+            foo: 'bar'
+        }
+    };
+}
+```
+
 
 ## Contributing
 
