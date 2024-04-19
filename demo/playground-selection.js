@@ -44,6 +44,8 @@ class Playground {
 
 const t = new Playground();
 
+t.len, t.str; // editable
+
 t.len; // editable
 t.str; // editable
 

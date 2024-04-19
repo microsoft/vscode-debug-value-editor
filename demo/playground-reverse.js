@@ -32,9 +32,7 @@ class Playground {
 
 const t = new Playground();
 
-t.original; // editable
-t.reversed; // editable
-t.combinedPromise; // editable
+t.original, t.reversed, t.combinedPromise; // editable
 
 globalThis.t = t;
 

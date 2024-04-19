@@ -1,4 +1,4 @@
-import { TabInputCustom, TabInputNotebook, TabInputNotebookDiff, TabInputTerminal, TabInputText, TabInputTextDiff, TabInputWebview, Uri, window, workspace } from "vscode";
+import { TabInputCustom, TabInputNotebook, TabInputNotebookDiff, TabInputTerminal, TabInputText, TabInputTextDiff, TabInputWebview, Uri, ViewColumn, window, workspace } from "vscode";
 import { SyncedTextDocument } from "./VirtualDocument";
 import { registerVirtualFs } from "./VirtualFileSystemController";
 import { DebugSessionService } from "./debugService/DebugSessionService";
@@ -98,7 +98,7 @@ export class DebugValueEditorService extends Disposable {
 
     private readonly _propertyPerExpression = new Map<string, RefCounted<IProperty>>();
 
-    public async editProperty(expression: string): Promise<void | ErrorMessage> {
+    public async editProperty(expression: string, viewColumn = ViewColumn.Beside): Promise<void | ErrorMessage> {
         const property = this.getProperty(expression);
         if (ErrorMessage.isErr(property)) {
             return property;
@@ -112,7 +112,7 @@ export class DebugValueEditorService extends Disposable {
                 return new ErrorMessage('No active debug session');
         }
         const uri = getUri(expression, property.value.fileExtension.get());
-        showDocument(uri);
+        await showDocument(uri, viewColumn);
     }
 }
 

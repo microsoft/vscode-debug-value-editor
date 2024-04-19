@@ -164,12 +164,12 @@ export class JsDebugSession extends Disposable {
                             data => handlePromiseResult(() => data),
                             err => handlePromiseResult(() => { throw err; })
                         );
-                        return { updating: "Promise is resolving" };
+                        return { kind: 'updating' };
                     }
                 }
-                return { value: data, fileExtension };
+                return { kind: 'ok', value: data, fileExtension };
             } catch (e) {
-                return { error: "" + e };
+                return { kind: 'error', error: "" + e };
             }
         }
 
@@ -250,34 +250,40 @@ export class JsDebugSession extends Disposable {
     }
 
     private updateProperty(ref: JsProperty, res: EvaluationResult, tx: ITransaction): void {
-        if ('error' in res) {
-            ref.state.set('error', tx);
-            ref.error.set(res.error, tx);
-            ref.value.set(undefined, tx);
-        } else if ('value' in res) {
-            ref.state.set('upToDate', tx);
-            if (ref.valueType === undefined) {
-                if (typeof res.value === 'string') {
-                    ref.valueType = 'string';
-                } else {
-                    ref.valueType = 'json';
+        switch (res.kind) {
+            case 'error':
+                ref.state.set('error', tx);
+                ref.error.set(res.error, tx);
+                ref.value.set(undefined, tx);
+                return;
+
+            case 'ok':
+                ref.state.set('upToDate', tx);
+                if (ref.valueType === undefined) {
+                    if (typeof res.value === 'string') {
+                        ref.valueType = 'string';
+                    } else {
+                        ref.valueType = 'json';
+                    }
                 }
-            }
 
-            let value: string;
-            if (ref.valueType === 'json') {
-                value = JSON.stringify(res.value);
-            } else {
-                value = res.value + '';
-            }
+                let value: string;
+                if (ref.valueType === 'json') {
+                    value = JSON.stringify(res.value);
+                } else {
+                    value = res.value + '';
+                }
 
-            ref.value.set(value, tx);
-            ref.error.set(undefined, tx);
-            ref.fileExtension.set(res.fileExtension, tx);
-        } else if ('updating' in res) {
-            ref.state.set('updating', tx);
-            ref.value.set(undefined, tx);
-            ref.error.set(undefined, tx);
+                ref.value.set(value, tx);
+                ref.error.set(undefined, tx);
+                ref.fileExtension.set(res.fileExtension, tx);
+                return;
+
+            case 'updating':
+                ref.state.set('updating', tx);
+                ref.value.set(undefined, tx);
+                ref.error.set(undefined, tx);
+                return;
         }
     }
 
@@ -309,6 +315,8 @@ export class JsDebugSession extends Disposable {
 
     public removeReference(reference: JsProperty): void {
         this._references.delete(reference);
+        this._readUpdates.delete(reference);
+        this._writeUpdates.delete(reference);
     }
 }
 
@@ -318,7 +326,7 @@ interface PromiseResolvedBindingNamePayload {
     result: EvaluationResult;
 }
 
-type EvaluationResult = { value: unknown; fileExtension?: string } | { error: string; } | { updating: string };
+type EvaluationResult = { kind: 'ok'; value: unknown; fileExtension?: string } | { kind: 'error'; error: string; } | { kind: 'updating' };
 
 const refreshBindingName = '$$debugValueEditorRefresh';
 

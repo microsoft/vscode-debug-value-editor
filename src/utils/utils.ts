@@ -23,7 +23,7 @@ export class ErrorMessage {
     }
 }
 
-export function showDocument(uri: Uri) {
-    const options: TextDocumentShowOptions = { viewColumn: ViewColumn.Beside };
-    commands.executeCommand('vscode.open', uri, options);
+export async function showDocument(uri: Uri, viewColumn = ViewColumn.Beside) {
+    const options: TextDocumentShowOptions = { viewColumn };
+    await commands.executeCommand('vscode.open', uri, options);
 }
