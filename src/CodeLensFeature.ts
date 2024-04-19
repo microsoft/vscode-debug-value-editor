@@ -9,7 +9,7 @@ export class OpenPropertyCodeLensFeature extends Disposable {
         this._register(
             languages.registerCodeLensProvider([{ language: "javascript" }, { language: "typescript" }], {
                 provideCodeLenses(document, token) {
-                    const lineRegexp = /(?<=($|\n)[ \t]*)([a-zA-Z_0-9\.$, ]+);[ \t]*\/\/[ \t]*editable/g;
+                    const lineRegexp = /(?<=($|\n)[ \t]*)([a-zA-Z_0-9\.$(), ]+);[ \t]*\/\/[ \t]*editable/g;
 
                     const text = document.getText();
 
