@@ -55,7 +55,8 @@
 		"@types/ws": "^8.5.10",
 		"@vscode/dts": "^0.4.0",
 		"tslint": "^6.1.2",
-		"typescript": "^5.4.3"
+		"typescript": "^5.4.3",
+		"@vscode/vsce": "^2.26.0"
 	},
 	"dependencies": {
 		"ws": "^8.16.0"
