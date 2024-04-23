@@ -30,14 +30,7 @@ extends:
         displayName: Build
 
     tsa:
+      config:
+        areaPath: 'Visual Studio Code Debugging Extensions'
+        serviceTreeID: '053e3ba6-924d-456c-ace0-67812c5ccc52'
       enabled: true
-      options:
-        codebaseName: 'devdiv_$(Build.Repository.Name)'
-        serviceTreeID: 'c8cb03c6-176e-40dd-90a5-518de08666dc'
-        instanceUrl: 'https://devdiv.visualstudio.com/defaultcollection'
-        projectName: 'DevDiv'
-        areaPath: 'DevDiv\\VS Code (compliance tracking only)\\Visual Studio Code Miscellaneous Extensions'
-        notificationAliases:
-          - 'stbatt@microsoft.com'
-          - 'lszomoru@microsoft.com'
-          - 'hdieterichs@microsoft.com'
