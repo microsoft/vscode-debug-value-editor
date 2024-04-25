@@ -18,6 +18,11 @@ export class DebugSessionService extends Disposable {
     private readonly _debugSessionsChangedSignal = observableSignal(this);
     private readonly _debugSessions = new Map<DebugSession, DebugSessionProxy>();
 
+    public readonly debugSessions = derived(this, reader => {
+        this._debugSessionsChangedSignal.read(reader);
+        return [...this._debugSessions.values()];
+    });
+
     constructor() {
         super();
 
@@ -103,6 +108,17 @@ export class DebugSessionProxy {
     private readonly _onDidTerminateEmitter = new EventEmitter<void>();
 
     constructor(public readonly session: DebugSession) {
+    }
+
+    public findSelfOrParent(predicate: (session: DebugSession) => boolean): DebugSession | undefined {
+        let s: DebugSession | undefined = this.session;
+        while (s) {
+            if (predicate(s)) {
+                return s;
+            }
+            s = s.parentSession;
+        }
+        return undefined;
     }
 
     public readonly onDidTerminate = this._onDidTerminateEmitter.event;

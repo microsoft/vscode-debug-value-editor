@@ -340,7 +340,7 @@ export class Derived<T, TChangeSummary = any> extends BaseObservable<T, void> im
 			const shouldReact = this._handleChange ? this._handleChange({
 				changedObservable: observable,
 				change,
-				didChange: o => o === observable as any,
+				didChange: <T, TChange>(o: IObservable<T, TChange>): this is { change: TChange; } => o === observable as any,
 			}, this.changeSummary!) : true;
 			const wasUpToDate = this.state === DerivedState.upToDate;
 			if (shouldReact && (this.state === DerivedState.dependenciesMightHaveChanged || wasUpToDate)) {

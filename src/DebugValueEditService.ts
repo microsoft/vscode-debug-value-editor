@@ -1,19 +1,19 @@
 import { TabInputCustom, TabInputNotebook, TabInputNotebookDiff, TabInputTerminal, TabInputText, TabInputTextDiff, TabInputWebview, Uri, ViewColumn, window, workspace } from "vscode";
 import { SyncedTextDocument } from "./VirtualDocument";
 import { registerVirtualFs } from "./VirtualFileSystemController";
-import { DebugSessionService } from "./debugService/DebugSessionService";
-import { ActiveSessionPropertyFactory, IProperty } from "./debugService/debugService";
-import { JsDebugSessionPropertyFactory } from "./debugService/JsDebugSessionPropertyFactory";
+import { DebugSessionProxy, DebugSessionService } from "./debugService/DebugSessionService";
+import { ActiveSessionPropertyFactory, IDebugSupport, IProperty, PropertyInformation } from "./debugService/debugService";
+import { JsDebugSupport } from "./debugService/JsDebugSupport";
 import { Disposable, RefCounted } from "./utils/disposables";
-import { derived, derivedObservableWithCache, observableFromEvent, waitForState } from "./utils/observables/observable";
+import { IObservable, derived, derivedObservableWithCache, observableFromEvent, waitForState } from "./utils/observables/observable";
 import { mapObservableArrayCached } from "./utils/observables/observableInternal/utils";
 import { ErrorMessage, showDocument } from "./utils/utils";
 import { toDisposable } from "./utils/observables/observableInternal/lifecycle";
 
 export class DebugValueEditorService extends Disposable {
-    private readonly _debugSessionService = this._register(new DebugSessionService());
-    private readonly _propertyFactory = this._register(new JsDebugSessionPropertyFactory());
-    private readonly _debugService = this._register(new ActiveSessionPropertyFactory(this._debugSessionService, this._propertyFactory));
+    public readonly debugSessionService = this._register(new DebugSessionService());
+    public readonly debugSupport: IDebugSupport = this._register(new JsDebugSupport());
+    private readonly _activeSessionPropertyFactory = this._register(new ActiveSessionPropertyFactory(this.debugSessionService, this.debugSupport));
 
     private readonly _openedUris = observableFromEvent(
         window.tabGroups.onDidChangeTabs,
@@ -30,7 +30,7 @@ export class DebugValueEditorService extends Disposable {
         const parsed = parseUri(doc.uri);
         if (!parsed) { return undefined; }
 
-        const property = this.getProperty(parsed.expression);
+        const property = this.getProperty(parsed.expression, parsed.sessionName);
 
         //window.tabGroups.all[0].tabs[0]
 
@@ -56,6 +56,18 @@ export class DebugValueEditorService extends Disposable {
         return s;
     });
 
+    private readonly _availableProperties = mapObservableArrayCached(this, this.debugSessionService.debugSessions, (session, store) => {
+        const props = this.debugSupport.getAvailableProperties(session);
+        if (!props) { return undefined; }
+        return new SessionInformation(session, props);
+    });
+
+    public readonly availableProperties = derived(this, reader => {
+        const props = this._availableProperties.read(reader);
+        return props.filter(isDefined).filter(p => p.hasProperties.read(reader));
+    });
+
+
     constructor() {
         super();
 
@@ -68,7 +80,7 @@ export class DebugValueEditorService extends Disposable {
             const parsed = parseUri(uri);
             if (!parsed) { throw new Error('invalid uri'); }
 
-            const property = this.getProperty(parsed.expression);
+            const property = this.getProperty(parsed.expression, parsed.sessionName);
             ErrorMessage.throwIfError(property);
 
             //await waitForState(property.value.state, s => s === 'upToDate', s => s === 'error');
@@ -79,27 +91,28 @@ export class DebugValueEditorService extends Disposable {
         }
     }));
 
-    private getProperty(expression: string): RefCounted<IProperty> | ErrorMessage {
-        let property = this._propertyPerExpression.get(expression);
+    private readonly _properties = new Map<string, RefCounted<IProperty>>();
+
+    private getProperty(expression: string, debugSessionName: string | undefined): RefCounted<IProperty> | ErrorMessage {
+        const key = JSON.stringify({ expression, debugSessionName: debugSessionName ?? undefined });
+        let property = this._properties.get(key);
         if (!property) {
-            property = RefCounted.ofWeak(this._debugService.createActiveContextProperty(expression), {
+            property = RefCounted.ofWeak(this._activeSessionPropertyFactory.createActiveContextProperty(expression, debugSessionName), {
                 dispose: () => {
-                    this._propertyPerExpression.delete(expression);
+                    this._properties.delete(key);
                 }
             });
             /*if (property.value.state.get() === 'noSession') {
                 property.dispose();
                 return new ErrorMessage('No active debug session');
             }*/
-            this._propertyPerExpression.set(expression, property);
+            this._properties.set(key, property);
         }
         return property;
     }
 
-    private readonly _propertyPerExpression = new Map<string, RefCounted<IProperty>>();
-
-    public async editProperty(expression: string, viewColumn = ViewColumn.Beside): Promise<void | ErrorMessage> {
-        const property = this.getProperty(expression);
+    public async editProperty(expression: string, debugSessionName: string | undefined, viewColumn = ViewColumn.Beside): Promise<void | ErrorMessage> {
+        const property = this.getProperty(expression, debugSessionName);
         if (ErrorMessage.isErr(property)) {
             return property;
         }
@@ -111,29 +124,33 @@ export class DebugValueEditorService extends Disposable {
             case 'noSession':
                 return new ErrorMessage('No active debug session');
         }
-        const uri = getUri(expression, property.value.fileExtension.get());
+        const uri = getUri(expression, debugSessionName, property.value.fileExtension.get());
         await showDocument(uri, viewColumn);
     }
 }
 
-const scheme = 'debug-value';
-
-function parseUri(uri: Uri): { expression: string } | undefined {
-    if (uri.scheme !== scheme) { return undefined; }
-
-    const expression = uri.query;
-
-    return { expression };
+function isDefined<T>(value: T | undefined): value is T {
+    return value !== undefined;
 }
 
-function getUri(expression: string, extension?: string): Uri {
+const scheme = 'debug-value';
+
+function parseUri(uri: Uri): { expression: string, sessionName: string | undefined } | undefined {
+    if (uri.scheme !== scheme) { return undefined; }
+
+    const data = JSON.parse(uri.query) as { expression: string, sessionName: string | undefined };
+
+    return { expression: data.expression, sessionName: data.sessionName ?? undefined };
+}
+
+function getUri(expression: string, sessionName: string | undefined, extension?: string): Uri {
     let path: string;
     if (extension !== undefined) {
         path = `${expression}.${extension}`;
     } else {
         path = expression.replaceAll('_', '.');
     }
-    return Uri.from({ scheme, path: `/${path}`, query: expression });
+    return Uri.from({ scheme, path: `/${path}`, query: JSON.stringify({ expression, sessionName }) });
 }
 
 function inputToUris(input: InputType | unknown): Uri[] {
@@ -145,3 +162,12 @@ function inputToUris(input: InputType | unknown): Uri[] {
 }
 
 type InputType = TabInputText | TabInputTextDiff | TabInputCustom | TabInputWebview | TabInputNotebook | TabInputNotebookDiff | TabInputTerminal;
+
+export class SessionInformation {
+    constructor(
+        public readonly session: DebugSessionProxy,
+        public readonly properties: IObservable<PropertyInformation[]>,
+    ) { }
+
+    public readonly hasProperties = derived(this, reader => this.properties.read(reader).length > 0);
+}

@@ -2,7 +2,8 @@ import { Event, commands } from "vscode";
 import { IDisposable } from "../utils/disposables";
 import { toDisposable } from "../utils/observables/observableInternal/lifecycle";
 import { WebSocket } from "ws";
-import { JsDebugSession } from "./JsDebugSessionPropertyFactory";
+import { JsDebugSession } from "./JsDebugSupport";
+import { Validator } from "../utils/Validator";
 
 export class CdpClient implements IDisposable {
     public static async connectToSession(session: JsDebugSession): Promise<CdpClient | undefined> {
@@ -75,7 +76,28 @@ export class CdpClient implements IDisposable {
         });
     };
 
-    public async addBinding(bindingName: string, onBindingCalled: (data: string) => void): Promise<void> {
+    public async addBinding(bindingName: string, onBindingCalled: (data: string) => void): Promise<void>;
+    public async addBinding<T>(binding: Binding<string, T>, onBindingCalled: (data: T) => void): Promise<void>;
+    public async addBinding(bindingName: string | Binding<string, any>, onBindingCalled: (data: string | any) => void): Promise<void> {
+        if (bindingName instanceof Binding) {
+            const binding = bindingName;
+            bindingName = binding.name;
+            const callback = onBindingCalled;
+            onBindingCalled = dataStr => {
+                let data;
+                try {
+                    data = JSON.parse(dataStr);
+                } catch (e) {
+                    console.error(`Could not parse JSON data received for binding ${bindingName}: ${JSON.stringify(dataStr)}`);
+                    data = undefined;
+                }
+                if (!binding.validator(data)) {
+                    console.error(`Invalid data received for binding ${bindingName}: ${JSON.stringify(data, undefined, 4)}`);
+                }
+                callback(data);
+            }
+        }
+
         await this._request('Runtime', 'addBinding', { name: bindingName });
         this._onBindingCalled(e => {
             if (e.name === bindingName) {
@@ -123,6 +145,24 @@ export class CdpClient implements IDisposable {
         });
     }
 }
+
+export class Binding<TName extends string, T> {
+    private readonly T: T = undefined!;
+
+    public readonly TRuntimeGlobalThis: { [TKey in TName]: (jsonData: string) => void } = undefined!;
+
+    constructor(
+        public readonly name: TName,
+        public readonly validator: Validator<T>,
+    ) { }
+
+    public getFunctionValue(): string {
+        return `function (data) { globalThis.${this.name}(JSON.stringify(data)); }`;
+    }
+
+    public readonly TFunctionValue: (data: T) => void = undefined!;
+}
+
 type SubscriptionCallback = (data: Record<string, unknown>) => void;
 type MessageId = number;
 type ProtocolMessage = ICdpEvent | ICdpResponse;

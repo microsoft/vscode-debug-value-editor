@@ -24,6 +24,18 @@ export class ErrorMessage {
 }
 
 export async function showDocument(uri: Uri, viewColumn = ViewColumn.Beside) {
-    const options: TextDocumentShowOptions = { viewColumn };
+    const options: TextDocumentShowOptions = { viewColumn, preserveFocus: true };
     await commands.executeCommand('vscode.open', uri, options);
+}
+
+export async function setContextKey(key: string, value: unknown) {
+    await commands.executeCommand('setContext', key, value);
+}
+
+export function isDefined<T>(value: T | undefined): value is T {
+    return value !== undefined;
+}
+
+export function wait(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }

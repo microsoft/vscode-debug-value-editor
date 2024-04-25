@@ -1,7 +1,7 @@
 {
 	"name": "debug-value-editor",
 	"private": true,
-	"displayName": "JS Debug Value Editor",
+	"displayName": "JS Debug Value Editor (Experimental)",
 	"description": "This extension allows to edit and view values of a debugee with a full text editor. Currently only supports javascript debug adaptors.",
 	"keywords": [
 		"debugger",
@@ -24,7 +24,8 @@
 	"activationEvents": [
 		"onFileSystem:debug-value",
 		"onLanguage:javascript",
-		"onLanguage:typescript"
+		"onLanguage:typescript",
+		"onCommand:debug-value-editor.debug-and-send-request"
 	],
 	"repository": {
 		"type": "git",
@@ -38,7 +39,26 @@
 				"title": "Edit Property",
 				"category": "Debug Value Editor"
 			}
-		]
+		],
+		"views": {
+			"debug-value-editor": [
+				{
+					"id": "available-properties",
+					"name": "Available Properties",
+					"type": "tree",
+					"when": "debug-value-editor.has-available-properties"
+				}
+			]
+		},
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "debug-value-editor",
+					"title": "Debug Value Editor",
+					"icon": "$(debug)"
+				}
+			]
+		}
 	},
 	"scripts": {
 		"pub": "vsce publish --yarn",
@@ -54,11 +74,18 @@
 		"@types/vscode": "^1.85.0",
 		"@types/ws": "^8.5.10",
 		"@vscode/dts": "^0.4.0",
+		"@vscode/vsce": "^2.26.0",
 		"tslint": "^6.1.2",
-		"typescript": "^5.4.3",
-		"@vscode/vsce": "^2.26.0"
+		"typescript": "^5.5.0-dev.20240425"
 	},
 	"dependencies": {
 		"ws": "^8.16.0"
-	}
+	},
+	"files": [
+		"dist/**/*",
+		"node_modules/",
+		"LICENSE",
+		"docs",
+		"*.md"
+	]
 }

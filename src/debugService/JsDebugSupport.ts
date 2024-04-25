@@ -1,15 +1,16 @@
 import { Disposable } from "../utils/disposables";
-import { ITransaction, autorun, observableValue, transaction } from "../utils/observables/observable";
+import { IObservable, ITransaction, autorun, observableValue, transaction } from "../utils/observables/observable";
 import { toDisposable } from "../utils/observables/observableInternal/lifecycle";
 import { ErrorMessage } from "../utils/utils";
-import { CdpClient } from "./CdpClient";
+import { Binding, CdpClient } from "./CdpClient";
+import { assumeType } from "../utils/Validator";
 import { DebugSessionProxy } from "./DebugSessionService";
-import { IProperty, IPropertyFactory } from "./debugService";
+import { IProperty, IDebugSupport, PropertyInformation, IRequestHandler } from "./debugService";
 
-export class JsDebugSessionPropertyFactory extends Disposable implements IPropertyFactory {
+export class JsDebugSupport extends Disposable implements IDebugSupport {
     private readonly _debugSessions = new Map<DebugSessionProxy, JsDebugSession>();
 
-    createProperty(debugSession: DebugSessionProxy, expression: string, initialValue: string | undefined): IProperty | undefined {
+    private getDebugSession(debugSession: DebugSessionProxy): JsDebugSession | undefined {
         // https://github.com/microsoft/vscode-js-debug/blob/2152210dc7c3933e2b4ef7c72d72cf2fef765760/src/common/contributionUtils.ts#L65
         const supportedSessionTypes = [
             'pwa-extensionHost',
@@ -33,7 +34,25 @@ export class JsDebugSessionPropertyFactory extends Disposable implements IProper
             });
         }
 
+        return jsDebugSession;
+    }
+
+    getAvailableProperties(debugSession: DebugSessionProxy): IObservable<PropertyInformation[]> | undefined {
+        const jsDebugSession = this.getDebugSession(debugSession);
+        return jsDebugSession?.availableProperties;
+    }
+
+    createProperty(debugSession: DebugSessionProxy, expression: string, initialValue: string | undefined): IProperty | undefined {
+        const jsDebugSession = this.getDebugSession(debugSession);
+        if (!jsDebugSession) {
+            return undefined;
+        }
         return new JsProperty(jsDebugSession, expression, initialValue);
+    }
+
+    getRequestHandler(debugSession: DebugSessionProxy): IObservable<IRequestHandler | undefined> | undefined {
+        const jsDebugSession = this.getDebugSession(debugSession);
+        return jsDebugSession?.requestHandler;
     }
 }
 
@@ -43,6 +62,13 @@ export class JsDebugSession extends Disposable {
     private readonly _readUpdates = new Set<JsProperty>();
 
     private _cdpInitializationPromise: Promise<CdpClient | undefined> | undefined = undefined;
+
+    private readonly _availableProperties = observableValue<PropertyInformation[]>(this, []);
+
+    get availableProperties(): IObservable<PropertyInformation[]> { return this._availableProperties; }
+
+    private readonly _requestHandler = observableValue<IRequestHandler | undefined>(this, undefined);
+    get requestHandler(): IObservable<IRequestHandler | undefined> { return this._requestHandler; }
 
     constructor(
         public readonly debugSession: DebugSessionProxy
@@ -74,21 +100,108 @@ export class JsDebugSession extends Disposable {
         if (!client) { return undefined; }
         this._registerOrDispose(client);
 
-        await client.addBinding(promiseResolvedBindingName, data => {
-            const payload = JSON.parse(data) as PromiseResolvedBindingNamePayload;
-            const prop = [...this._references].find(p => p.expression === payload.expression);
-            if (!prop) {
-                return;
+        await Promise.all([
+            client.addBinding(promiseResolvedBinding, payload => {
+                const prop = [...this._references].find(p => p.expression === payload.expression);
+                if (!prop) {
+                    return;
+                }
+                transaction(tx => {
+                    /** @description End update (async) */
+                    this.updateProperty(prop, payload.result, tx);
+                });
+            }),
+            client.addBinding(refreshBinding, _data => {
+                this._references.forEach(r => this._scheduleReadUpdate(r));
+                this._update(this.debugSession.pausedStackFrameId.get());
+            })
+        ]);
+
+        client.addBinding(updateAvailablePropertiesBinding, payload => {
+            this._availableProperties.set(payload.expressions.map(e => PropertyInformation.from(e, this.debugSession)), undefined);
+        }).then(async () => {
+            type GlobalThisObj = {
+                $$debugValueEditor_propertiesListenerInstalled?: boolean;
+                $$debugValueEditor_properties: AvailablePropertyInfo[];
+            };
+
+            function installPropertiesListener(updateAvailablePropertiesFn: typeof updateAvailablePropertiesBinding.TFunctionValue) {
+                const g = globalThis as any as GlobalThisObj;
+                if (g.$$debugValueEditor_propertiesListenerInstalled) {
+                    return;
+                }
+                let properties = g.$$debugValueEditor_properties;
+                if (properties) {
+                    updateAvailablePropertiesFn({ expressions: properties });
+                }
+
+                Object.defineProperty(g, '$$debugValueEditor_properties', {
+                    get() { return properties; },
+                    set(value: AvailablePropertyInfo[]) {
+                        properties = value;
+                        updateAvailablePropertiesFn({ expressions: value });
+                    }
+                });
+                g.$$debugValueEditor_propertiesListenerInstalled = true;
             }
-            transaction(tx => {
-                /** @description End update (async) */
-                this.updateProperty(prop, payload.result, tx);
+
+            await this.debugSession.evaluate({
+                expression: `(${installPropertiesListener.toString()})(${updateAvailablePropertiesBinding.getFunctionValue()});`,
+                frameId: undefined,
+                context: 'repl',
             });
         });
-        await client.addBinding(refreshBindingName, data => {
-            this._references.forEach(r => this._scheduleReadUpdate(r));
-            this._update(this.debugSession.pausedStackFrameId.get());
+
+
+        interface GlobalObj {
+            $$debugValueEditor_runListenerInstalled?: boolean;
+            $$debugValueEditor_run?: (data: unknown) => void;
+        }
+        client.addBinding(runFunctionAvailableBinding, data => {
+            this._requestHandler.set({
+                sendRequest: async (requestData) => {
+                    function sendRequest(data: unknown) {
+                        const g = globalThis as any as GlobalObj;
+                        if (g.$$debugValueEditor_run) {
+                            return g.$$debugValueEditor_run(data);
+                        } else {
+                            throw new Error('run function is missing');
+                        }
+                    }
+                    await this.debugSession.evaluate({
+                        expression: `(${sendRequest.toString()})(${JSON.stringify(requestData)})`,
+                        context: 'copy',
+                        frameId: undefined,
+                    });
+                }
+            }, undefined);
+        }).then(async () => {
+            function installPropertiesListener(runFunctionAvailableBindingFn: typeof runFunctionAvailableBinding.TFunctionValue) {
+                const g = globalThis as any as GlobalObj;
+                if (g.$$debugValueEditor_runListenerInstalled) {
+                    return;
+                }
+
+                let existingRunFn = g.$$debugValueEditor_run;
+                Object.defineProperty(g, '$$debugValueEditor_run', {
+                    get() { return existingRunFn; },
+                    set(value) {
+                        existingRunFn = value;
+                        runFunctionAvailableBindingFn({});
+                    }
+                });
+                g.$$debugValueEditor_runListenerInstalled = true;
+
+                if (existingRunFn) { runFunctionAvailableBindingFn({}); }
+            }
+
+            await this.debugSession.evaluate({
+                expression: `(${installPropertiesListener.toString()})(${runFunctionAvailableBinding.getFunctionValue()});`,
+                frameId: undefined,
+                context: 'repl',
+            });
         });
+
         return client;
     }
 
@@ -122,7 +235,7 @@ export class JsDebugSession extends Disposable {
 
         await this._cdpInitializationPromise;
 
-        const tryEvalImpl = function tryEvalImpl(fn: () => unknown, expression: string, promiseResolvedBinding: (data: PromiseResolvedBindingNamePayload) => void): EvaluationResult {
+        const tryEvalImpl = function tryEvalImpl(fn: () => unknown, expression: string, promiseResolvedBindingFn: typeof promiseResolvedBinding.TFunctionValue): EvaluationResult {
             const g = (globalThis as { $$vscodeDebugValueEditor?: { cancellationCallbacksByExpr: Map<string, () => void> } });
             if (!g.$$vscodeDebugValueEditor) {
                 g.$$vscodeDebugValueEditor = { cancellationCallbacksByExpr: new Map() };
@@ -152,9 +265,9 @@ export class JsDebugSession extends Disposable {
                             if (cancelled) { return; }
 
                             try {
-                                promiseResolvedBinding({
+                                promiseResolvedBindingFn({
                                     expression,
-                                    result: tryEvalImpl(fn, expression, promiseResolvedBinding),
+                                    result: tryEvalImpl(fn, expression, promiseResolvedBindingFn),
                                 });
                             } catch (e) {
                                 console.error('unexpected error while sending notification for resolved promise', e);
@@ -202,7 +315,7 @@ export class JsDebugSession extends Disposable {
         (() => {
             ${tryEvalImpl.toString()}
             function tryEval(fn, expression) {
-                return tryEvalImpl(fn, expression, arg => ${promiseResolvedBindingName}(JSON.stringify(arg)));
+                return tryEvalImpl(fn, expression, ${promiseResolvedBinding.getFunctionValue()});
             }
             
             ${transformValue.toString()}
@@ -320,15 +433,20 @@ export class JsDebugSession extends Disposable {
     }
 }
 
-const promiseResolvedBindingName = '$$debugValueEditorPromiseResolved';
-interface PromiseResolvedBindingNamePayload {
+export type AvailablePropertyInfo = string | {
+    label: string;
+    expression: string;
+};
+
+const updateAvailablePropertiesBinding = new Binding("$$debugValueEditor_updateAvailableProperties", assumeType<{ expressions: AvailablePropertyInfo[] }>());
+const refreshBinding = new Binding('$$debugValueEditor_refresh', assumeType<{}>());
+const runFunctionAvailableBinding = new Binding('$$debugValueEditor_runFunctionAvailable', assumeType<{}>());
+const promiseResolvedBinding = new Binding('$$debugValueEditor_promiseResolved', assumeType<{
     expression: string;
     result: EvaluationResult;
-}
+}>());
 
 type EvaluationResult = { kind: 'ok'; value: unknown; fileExtension?: string } | { kind: 'error'; error: string; } | { kind: 'updating' };
-
-const refreshBindingName = '$$debugValueEditorRefresh';
 
 export class JsProperty extends Disposable implements IProperty {
     public didUpdate = false;

@@ -1,4 +1,4 @@
-# JS Debug Value Editor
+# JS Debug Value Editor (Experimental)
 
 This extension allows to edit and view values of a debugee with a full text editor.
 

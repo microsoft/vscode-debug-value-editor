@@ -1,6 +1,6 @@
 import { CodeLens, Position, Range, languages } from "vscode";
 import { Disposable } from "./utils/disposables";
-import { editPropertyCommandId } from "./extension";
+import { editPropertyCommand } from "./extension";
 
 export class OpenPropertyCodeLensFeature extends Disposable {
     constructor() {
@@ -26,11 +26,9 @@ export class OpenPropertyCodeLensFeature extends Disposable {
                     return result.map<CodeLens>(({ lineNumber, column, expressions }) => {
                         return {
                             range: new Range(lineNumber, column, lineNumber, column),
-                            command: {
-                                title: '$(edit) Open Property In Editor',
-                                command: editPropertyCommandId,
-                                arguments: [{ expressions }],
-                            },
+                            command: editPropertyCommand.toCommand({
+                                title: '$(edit) Edit Property',
+                            }, { expressions }),
                             isResolved: true,
                         };
                     });

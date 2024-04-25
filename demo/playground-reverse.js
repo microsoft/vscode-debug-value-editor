@@ -37,3 +37,29 @@ t.original, t.reversed, t.combinedPromise; // editable
 globalThis.t = t;
 
 setInterval(() => {}, 1000);
+
+
+function foo() {
+    globalThis.$$debugValueEditor_properties = [
+        "t.original",
+        "t.reversed",
+        "t.combinedPromise",
+    ];
+}
+
+function bar() {
+    globalThis.$$debugValueEditor_properties = [
+        "t.original",
+    ];
+}
+
+globalThis.foo = foo;
+globalThis.bar = bar;
+
+foo();
+
+globalThis.$$debugValueEditor_run = function(args) {
+    console.log('run', args);
+};
+
+console.log('init');
