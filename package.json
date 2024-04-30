@@ -61,11 +61,10 @@
 		}
 	},
 	"scripts": {
-		"pub": "vsce publish --yarn",
-		"package": "vsce package --yarn",
-		"vscode:prepublish": "",
+		"build": "yarn run build-ts && yarn run build-vsix",
 		"build-ts": "tsc -p ./",
-		"build": "yarn run build-ts && yarn run package",
+		"build-vsix": "vsce package --yarn --out extension.vsix",
+		"vscode:prepublish": "",
 		"dev": "tsc -watch -p ./",
 		"get-types": "dts dev"
 	},
