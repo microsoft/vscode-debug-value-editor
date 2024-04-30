@@ -19,7 +19,7 @@
 		"vscode": "^1.85.0"
 	},
 	"categories": [
-		"Other"
+		"Debuggers"
 	],
 	"activationEvents": [
 		"onFileSystem:debug-value",
