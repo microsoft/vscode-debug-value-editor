@@ -40,7 +40,7 @@ export class PropertyInformation {
     }
 
     constructor(
-        public readonly expression: string,
+        public readonly expression: string | undefined,
         public readonly label: string,
         public readonly session: DebugSessionProxy,
     ) { }

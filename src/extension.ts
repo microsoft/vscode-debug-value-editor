@@ -96,7 +96,12 @@ export class Extension extends Disposable {
 				const session = targetDebugSession.get();
 				if (!session) { return; }
 
-				session.handler.sendRequest(args.args);
+				try {
+					await session.handler.sendRequest(args.args);
+				} catch (e) {
+					console.error(e);
+					window.showErrorMessage('Error sending request: ' + e);
+				}
 			} finally {
 				store.dispose();
 			}
@@ -150,10 +155,10 @@ class TreeDataProviderImpl extends Disposable implements TreeDataProvider<T> {
 				label: element.label,
 				description: element.expression,
 				collapsibleState: TreeItemCollapsibleState.None,
-				command: editPropertyCommand.toCommand(
+				command: element.expression ? editPropertyCommand.toCommand(
 					{ title: 'Edit property' },
 					{ expressions: [element.expression], debugSessionName: element.session.session.name }
-				),
+				) : undefined,
 			}
 		} else {
 			const x: never = element;

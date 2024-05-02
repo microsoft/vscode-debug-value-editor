@@ -168,11 +168,14 @@ export class JsDebugSession extends Disposable {
                             throw new Error('run function is missing');
                         }
                     }
-                    await this.debugSession.evaluate({
+                    const result = await this.debugSession.evaluate({
                         expression: `(${sendRequest.toString()})(${JSON.stringify(requestData)})`,
                         context: 'copy',
                         frameId: undefined,
                     });
+                    if (!result) {
+                        throw new Error('run function failed');
+                    }
                 }
             }, undefined);
         }).then(async () => {
@@ -435,7 +438,7 @@ export class JsDebugSession extends Disposable {
 
 export type AvailablePropertyInfo = string | {
     label: string;
-    expression: string;
+    expression?: string;
 };
 
 const updateAvailablePropertiesBinding = new Binding("$$debugValueEditor_updateAvailableProperties", assumeType<{ expressions: AvailablePropertyInfo[] }>());
