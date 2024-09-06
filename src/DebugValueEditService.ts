@@ -111,7 +111,7 @@ export class DebugValueEditorService extends Disposable {
         return property;
     }
 
-    public async editProperty(expression: string, debugSessionName: string | undefined, viewColumn = ViewColumn.Beside): Promise<void | ErrorMessage> {
+    public async editProperty(expression: string, debugSessionName: string | undefined, label: string | undefined, viewColumn = ViewColumn.Beside): Promise<void | ErrorMessage> {
         const property = this.getProperty(expression, debugSessionName);
         if (ErrorMessage.isErr(property)) {
             return property;
@@ -124,7 +124,7 @@ export class DebugValueEditorService extends Disposable {
             case 'noSession':
                 return new ErrorMessage('No active debug session');
         }
-        const uri = getUri(expression, debugSessionName, property.value.fileExtension.get());
+        const uri = getUri(expression, debugSessionName, property.value.fileExtension.get(), label);
         await showDocument(uri, viewColumn);
     }
 }
@@ -143,12 +143,12 @@ function parseUri(uri: Uri): { expression: string, sessionName: string | undefin
     return { expression: data.expression, sessionName: data.sessionName ?? undefined };
 }
 
-function getUri(expression: string, sessionName: string | undefined, extension?: string): Uri {
-    let path: string;
+function getUri(expression: string, sessionName: string | undefined, extension: string | undefined, title: string | undefined): Uri {
+    let path = (title ?? expression)
+        .replaceAll('_', '.')
+        .replaceAll(/[/\\]|(\.\.+)/g, '_');
     if (extension !== undefined) {
-        path = `${expression}.${extension}`;
-    } else {
-        path = expression.replaceAll('_', '.');
+        path = `${path}.${extension}`;
     }
     return Uri.from({ scheme, path: `/${path}`, query: JSON.stringify({ expression, sessionName }) });
 }
