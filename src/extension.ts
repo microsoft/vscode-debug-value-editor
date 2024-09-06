@@ -34,7 +34,15 @@ export class Extension extends Disposable {
 				if (!first) {
 					await commands.executeCommand('workbench.action.newGroupBelow');
 				}
-				const result = await this._debugValueEditService.editProperty(expression, args.debugSessionName, first ? ViewColumn.Beside : ViewColumn.Active);
+				const expr = typeof expression === 'string' ? expression : expression.expression;
+				const label = typeof expression === 'string' ? undefined : expression.label;
+
+				const result = await this._debugValueEditService.editProperty(
+					expr,
+					args.debugSessionName,
+					label,
+					first ? ViewColumn.Beside : ViewColumn.Active,
+				);
 				if (ErrorMessage.showIfError(result)) {
 					return;
 				}
@@ -110,7 +118,7 @@ export class Extension extends Disposable {
 }
 
 export const editPropertyCommand = new CommandDef('debug-value-editor.edit-property', assumeType<{
-	expressions: string[];
+	expressions: (string | { expression: string, label?: string })[];
 	debugSessionName?: string,
 }>());
 
@@ -153,11 +161,11 @@ class TreeDataProviderImpl extends Disposable implements TreeDataProvider<T> {
 			return {
 				id: 'prop-' + element.expression,
 				label: element.label,
-				description: element.expression,
+				/*description: element.expression,*/
 				collapsibleState: TreeItemCollapsibleState.None,
 				command: element.expression ? editPropertyCommand.toCommand(
 					{ title: 'Edit property' },
-					{ expressions: [element.expression], debugSessionName: element.session.session.name }
+					{ expressions: [{ expression: element.expression, label: element.label }], debugSessionName: element.session.session.name }
 				) : undefined,
 			}
 		} else {
