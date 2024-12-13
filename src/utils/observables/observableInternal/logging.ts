@@ -167,6 +167,7 @@ export class ConsoleObservableLogger implements IObservableLogger {
 	}
 
 	handleEndTransaction(): void {
+		console.log('transaction end');
 		this.indentation--;
 	}
 }

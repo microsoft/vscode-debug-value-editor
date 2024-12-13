@@ -1,16 +1,17 @@
 import { Disposable } from "../utils/disposables";
-import { IObservable, ITransaction, autorun, observableValue, transaction } from "../utils/observables/observable";
+import { IObservable, ITransaction, autorun, constObservable, observableValue, transaction } from "../utils/observables/observable";
 import { toDisposable } from "../utils/observables/observableInternal/lifecycle";
 import { ErrorMessage } from "../utils/utils";
 import { Binding, CdpClient } from "./CdpClient";
 import { assumeType } from "../utils/Validator";
 import { DebugSessionProxy } from "./DebugSessionService";
-import { IProperty, IDebugSupport, PropertyInformation, IRequestHandler } from "./debugService";
+import { IProperty, IDebugSupport, PropertyInformation, IDebugChannel, ISourceLocation } from "./IDebugSupport";
+import { EventEmitter } from "vscode";
 
 export class JsDebugSupport extends Disposable implements IDebugSupport {
     private readonly _debugSessions = new Map<DebugSessionProxy, JsDebugSession>();
 
-    private getDebugSession(debugSession: DebugSessionProxy): JsDebugSession | undefined {
+    public getDebugSession(debugSession: DebugSessionProxy): JsDebugSession | undefined {
         // https://github.com/microsoft/vscode-js-debug/blob/2152210dc7c3933e2b4ef7c72d72cf2fef765760/src/common/contributionUtils.ts#L65
         const supportedSessionTypes = [
             'pwa-extensionHost',
@@ -50,9 +51,13 @@ export class JsDebugSupport extends Disposable implements IDebugSupport {
         return new JsProperty(jsDebugSession, expression, initialValue);
     }
 
-    getRequestHandler(debugSession: DebugSessionProxy): IObservable<IRequestHandler | undefined> | undefined {
+    getAvailableChannels(debugSession: DebugSessionProxy): IObservable<readonly IDebugChannel[]> {
         const jsDebugSession = this.getDebugSession(debugSession);
-        return jsDebugSession?.requestHandler;
+        return jsDebugSession?.availableDebugChannels ?? constObservable([]);
+    }
+
+    async translateSourceMap(debugSession: DebugSessionProxy, location: ISourceLocation): Promise<ISourceLocation | undefined> {
+        return undefined;
     }
 }
 
@@ -67,8 +72,8 @@ export class JsDebugSession extends Disposable {
 
     get availableProperties(): IObservable<PropertyInformation[]> { return this._availableProperties; }
 
-    private readonly _requestHandler = observableValue<IRequestHandler | undefined>(this, undefined);
-    get requestHandler(): IObservable<IRequestHandler | undefined> { return this._requestHandler; }
+    private readonly _availableDebugChannels = observableValue<readonly IDebugChannel[]>(this, []);
+    get availableDebugChannels(): IObservable<readonly IDebugChannel[]> { return this._availableDebugChannels; }
 
     constructor(
         public readonly debugSession: DebugSessionProxy
@@ -85,6 +90,11 @@ export class JsDebugSession extends Disposable {
         }));
 
         this.checkCdp();
+    }
+
+    public getCdpClient(): Promise<CdpClient | undefined> {
+        this.checkCdp();
+        return this._cdpInitializationPromise!;
     }
 
     private async checkCdp(): Promise<void> {
@@ -152,54 +162,117 @@ export class JsDebugSession extends Disposable {
             });
         });
 
+        const notificationHandlers = new Map</* channelId */ string, EventEmitter<{ notificationData: unknown }>>();
 
         interface GlobalObj {
-            $$debugValueEditor_runListenerInstalled?: boolean;
-            $$debugValueEditor_run?: (data: unknown) => void;
+            $$debugValueEditor_runtime: { debugChannels: Map<string, { handleRequest: (data: unknown) => unknown }> } | undefined;
+            $$debugValueEditor_debugChannels: Record<string, (host: ({ sendNotification: (data: unknown) => void })) => { handleRequest: (data: unknown) => unknown }>;
         }
-        client.addBinding(runFunctionAvailableBinding, data => {
-            this._requestHandler.set({
-                sendRequest: async (requestData) => {
-                    function sendRequest(data: unknown) {
-                        const g = globalThis as any as GlobalObj;
-                        if (g.$$debugValueEditor_run) {
-                            return g.$$debugValueEditor_run(data);
-                        } else {
-                            throw new Error('run function is missing');
+
+        client.addBinding(debugChannelSendNotificationBinding, data => {
+            const handler = notificationHandlers.get(data.channelId);
+            if (handler) {
+                handler.fire({ notificationData: data.notificationData });
+            } else {
+                console.error(`No handler found for channel "${data.channelId}"`, data);
+            }
+        });
+
+        client.addBinding(debugChannelRegisterBinding, data => {
+            const newChannels: IDebugChannel[] = [];
+            for (const channelId of data.channelIds) {
+                const onNotificationEmitter = new EventEmitter<{ notificationData: unknown }>();
+                notificationHandlers.set(channelId, onNotificationEmitter);
+                const newChannel: IDebugChannel = {
+                    channelId: channelId,
+                    onNotification: onNotificationEmitter.event,
+                    connect: async () => {
+                        function connect(channelId: string, debugChannelSendNotificationBindingFn: typeof debugChannelSendNotificationBinding.TFunctionValue) {
+                            const g = globalThis as any as GlobalObj;
+
+                            const handler = g.$$debugValueEditor_debugChannels?.[channelId];
+
+                            if (handler) {
+                                const h = handler({
+                                    sendNotification(data) {
+                                        debugChannelSendNotificationBindingFn({ channelId, notificationData: data })
+                                    },
+                                });
+                                g.$$debugValueEditor_runtime!.debugChannels.set(channelId, h);
+                            } else {
+                                throw new Error('handler is missing');
+                            }
                         }
+                        await this.debugSession.evaluate({
+                            expression: `(${connect.toString()})(${JSON.stringify(channelId)}, ${debugChannelSendNotificationBinding.getFunctionValue()})`,
+                            context: 'copy',
+                            frameId: undefined,
+                        });
+                    },
+                    sendRequest: async (requestData) => {
+                        function sendRequest(channelId: string, data: unknown) {
+                            const g = globalThis as any as GlobalObj;
+
+                            const handler = g.$$debugValueEditor_runtime?.debugChannels.get(channelId);
+
+                            if (handler) {
+                                return handler.handleRequest(data);
+                            } else {
+                                throw new Error(`handler ${channelId} is missing`);
+                            }
+                        }
+                        const result = await this.debugSession.evaluate({
+                            expression: `(${sendRequest.toString()})(${JSON.stringify(channelId)}, ${JSON.stringify(requestData)})`,
+                            context: 'copy',
+                            frameId: undefined,
+                        });
+                        if (!result) {
+                            // TODO check if we should return an error instead of throwing
+                            throw new Error('request handler function failed');
+                        }
+                        return JSON.parse(result.result);
                     }
-                    const result = await this.debugSession.evaluate({
-                        expression: `(${sendRequest.toString()})(${JSON.stringify(requestData)})`,
-                        context: 'copy',
-                        frameId: undefined,
-                    });
-                    if (!result) {
-                        throw new Error('run function failed');
-                    }
-                }
-            }, undefined);
+                };
+                newChannels.push(newChannel);
+            }
+
+            const existing = this._availableDebugChannels.get();
+            this._availableDebugChannels.set([...existing, ...newChannels], undefined);
         }).then(async () => {
-            function installPropertiesListener(runFunctionAvailableBindingFn: typeof runFunctionAvailableBinding.TFunctionValue) {
+            function injectRuntime(debugChannelRegisterBindingFn: typeof debugChannelRegisterBinding.TFunctionValue) {
                 const g = globalThis as any as GlobalObj;
-                if (g.$$debugValueEditor_runListenerInstalled) {
+                if (g.$$debugValueEditor_runtime) {
                     return;
                 }
 
-                let existingRunFn = g.$$debugValueEditor_run;
-                Object.defineProperty(g, '$$debugValueEditor_run', {
-                    get() { return existingRunFn; },
-                    set(value) {
-                        existingRunFn = value;
-                        runFunctionAvailableBindingFn({});
+                const existingChannels = g.$$debugValueEditor_debugChannels ?? {};
+                const proxied = new Proxy({}, {
+                    get: (target, key: string) => {
+                        return existingChannels[key];
+                    },
+                    set: (target, key: string, value: any) => {
+                        existingChannels[key] = value;
+                        debugChannelRegisterBindingFn({ channelIds: [key] });
+                        return true;
                     }
                 });
-                g.$$debugValueEditor_runListenerInstalled = true;
-
-                if (existingRunFn) { runFunctionAvailableBindingFn({}); }
+                Object.defineProperty(g, '$$debugValueEditor_debugChannels', {
+                    get() { return proxied; },
+                    set(value) {
+                        console.error('setting $$debugValueEditor_debugChannels after initialization is not supported');
+                    }
+                });
+                g.$$debugValueEditor_runtime = {
+                    debugChannels: new Map()
+                };
+                const keys = Object.keys(existingChannels);
+                if (keys.length > 0) {
+                    debugChannelRegisterBindingFn({ channelIds: keys });
+                }
             }
 
             await this.debugSession.evaluate({
-                expression: `(${installPropertiesListener.toString()})(${runFunctionAvailableBinding.getFunctionValue()});`,
+                expression: `(${injectRuntime.toString()})(${debugChannelRegisterBinding.getFunctionValue()});`,
                 frameId: undefined,
                 context: 'repl',
             });
@@ -441,9 +514,11 @@ export type AvailablePropertyInfo = string | {
     expression?: string;
 };
 
+const debugChannelRegisterBinding = new Binding('$$debugValueEditor_registerDebugChannel', assumeType<{ channelIds: string[] }>());
+const debugChannelSendNotificationBinding = new Binding('$$debugValueEditor_debugChannelNotification', assumeType<{ channelId: string, notificationData: unknown }>());
+
 const updateAvailablePropertiesBinding = new Binding("$$debugValueEditor_updateAvailableProperties", assumeType<{ expressions: AvailablePropertyInfo[] }>());
 const refreshBinding = new Binding('$$debugValueEditor_refresh', assumeType<{}>());
-const runFunctionAvailableBinding = new Binding('$$debugValueEditor_runFunctionAvailable', assumeType<{}>());
 const promiseResolvedBinding = new Binding('$$debugValueEditor_promiseResolved', assumeType<{
     expression: string;
     result: EvaluationResult;

@@ -2,7 +2,8 @@ import { TabInputCustom, TabInputNotebook, TabInputNotebookDiff, TabInputTermina
 import { SyncedTextDocument } from "./VirtualDocument";
 import { registerVirtualFs } from "./VirtualFileSystemController";
 import { DebugSessionProxy, DebugSessionService } from "./debugService/DebugSessionService";
-import { ActiveSessionPropertyFactory, IDebugSupport, IProperty, PropertyInformation } from "./debugService/debugService";
+import { IDebugSupport, IProperty, PropertyInformation } from "./debugService/IDebugSupport";
+import { ActiveSessionPropertyFactory } from "./debugService/ActiveSessionPropertyFactory";
 import { JsDebugSupport } from "./debugService/JsDebugSupport";
 import { Disposable, RefCounted } from "./utils/disposables";
 import { IObservable, derived, derivedObservableWithCache, observableFromEvent, waitForState } from "./utils/observables/observable";

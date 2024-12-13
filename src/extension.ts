@@ -1,13 +1,15 @@
 import { EventEmitter, ExtensionContext, ProgressLocation, TreeDataProvider, TreeItem, TreeItemCollapsibleState, ViewColumn, commands, debug, window, workspace } from "vscode";
 import { OpenPropertyCodeLensFeature } from "./CodeLensFeature";
 import { CommandDef } from "./Command";
-import { PropertyInformation } from "./debugService/debugService";
+import { PropertyInformation } from "./debugService/IDebugSupport";
 import { DebugValueEditorService, SessionInformation } from "./DebugValueEditService";
 import { Disposable, DisposableStore } from "./utils/disposables";
 import { IObservable, autorun, derived, observableValue, waitForState } from "./utils/observables/observable";
 import { constObservable, derivedObservableWithCache, mapObservableArrayCached, observableFromEvent } from "./utils/observables/observableInternal/utils";
 import { ErrorMessage, isDefined, setContextKey } from "./utils/utils";
 import { assumeType } from "./utils/Validator";
+import { ObservableDevToolsFeature } from "./observableDevTools/ObservableDevToolsFeature";
+import { ChromiumTools } from "./chromiumTools/cssSelector";
 
 export class Extension extends Disposable {
 	private readonly _debugValueEditService = this._register(new DebugValueEditorService());
@@ -27,6 +29,8 @@ export class Extension extends Disposable {
 		visibleProperty.set(observableFromEvent(treeView.onDidChangeVisibility, () => treeView.visible), undefined);
 
 		this._register(new OpenPropertyCodeLensFeature());
+		this._register(new ObservableDevToolsFeature(this._debugValueEditService.debugSessionService, this._debugValueEditService.debugSupport));
+		this._register(new ChromiumTools(this._debugValueEditService.debugSessionService, this._debugValueEditService.debugSupport));
 		this._register(editPropertyCommand.register(async args => {
 			const expressions = args.expressions;
 			let first = true;
@@ -68,7 +72,7 @@ export class Extension extends Disposable {
 							if (!s.findSelfOrParent(s => s.configuration.name === args.launchConfigName)) {
 								return undefined;
 							}
-							const handler = this._debugValueEditService.debugSupport.getRequestHandler(s)?.read(reader);
+							const handler = this._debugValueEditService.debugSupport.getAvailableChannels(s)?.read(reader);
 							if (!handler) { return undefined; }
 							return { session: s, handler };
 						}
@@ -105,7 +109,8 @@ export class Extension extends Disposable {
 				if (!session) { return; }
 
 				try {
-					await session.handler.sendRequest(args.args);
+					throw new Error('todo fix me');
+					//await session.handler.sendRequest(args.args);
 				} catch (e) {
 					console.error(e);
 					window.showErrorMessage('Error sending request: ' + e);

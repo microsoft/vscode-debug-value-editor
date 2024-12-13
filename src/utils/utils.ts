@@ -39,3 +39,42 @@ export function isDefined<T>(value: T | undefined): value is T {
 export function wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+
+
+
+
+
+
+
+
+export class Failed<T> {
+    static isErr<TErr>(value: unknown | Failed<TErr>): value is Failed<TErr> {
+        return value instanceof Failed;
+    }
+
+    static throwIfError<T>(value: T | Failed<any>): asserts value is T {
+        if (value instanceof Failed) {
+            throw new Error(value.message);
+        }
+    }
+
+    constructor(
+        public readonly error: T,
+        public readonly message: string
+    ) {
+    }
+}
+
+function getFileContent(path: string): { content: string } | Failed<'fileNotFound' | 'dirNotFound'> {
+    return null!;
+}
+
+function main() {
+
+    const content = getFileContent('foo');
+
+    Failed.throwIfError(content);
+
+    content.content;
+}

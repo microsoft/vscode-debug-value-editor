@@ -71,7 +71,7 @@ export class CdpClient implements IDisposable {
     }
 
     private readonly _onBindingCalled: Event<{ name: string; payload: string; }> = listener => {
-        return this._subscribe('Runtime', 'bindingCalled', (data) => {
+        return this.subscribe('Runtime', 'bindingCalled', (data) => {
             listener({ name: data.name as string, payload: data.payload as string });
         });
     };
@@ -98,7 +98,7 @@ export class CdpClient implements IDisposable {
             }
         }
 
-        await this._request('Runtime', 'addBinding', { name: bindingName });
+        await this.request('Runtime', 'addBinding', { name: bindingName });
         this._onBindingCalled(e => {
             if (e.name === bindingName) {
                 onBindingCalled(e.payload);
@@ -106,16 +106,18 @@ export class CdpClient implements IDisposable {
         });
     }
 
-    private _subscribe(domain: string, event: string, callback: SubscriptionCallback): IDisposable {
+    public subscribe(domain: string, event: string, callback: SubscriptionCallback): IDisposable {
         const domainAndEvent = `${domain}.${event}`;
 
-        if (this._subscriptions.has(domainAndEvent)) {
-            this._subscriptions.get(domainAndEvent)?.push(callback);
-        } else {
-            this._subscriptions.set(domainAndEvent, [callback]);
+        let subscriptions = this._subscriptions.get(domainAndEvent);
+        if (!subscriptions) {
+            subscriptions = [];
+            this._subscriptions.set(domainAndEvent, subscriptions);
         }
-
-        this._request('JsDebug', 'subscribe', { events: [`${domain}.${event}`] });
+        subscriptions.push(callback);
+        if (subscriptions.length === 1) {
+            this.request('JsDebug', 'subscribe', { events: [`${domain}.${event}`] });
+        }
 
         return toDisposable(() => {
             const callbacks = this._subscriptions.get(domainAndEvent);
@@ -130,7 +132,7 @@ export class CdpClient implements IDisposable {
         });
     }
 
-    private async _request(domain: string, method: string, params?: Record<string, unknown>): Promise<unknown> {
+    public async request(domain: string, method: string, params?: Record<string, unknown>): Promise<unknown> {
         return await this._send(`${domain}.${method}`, params);
     }
 
@@ -157,7 +159,7 @@ export class Binding<TName extends string, T> {
     ) { }
 
     public getFunctionValue(): string {
-        return `function (data) { globalThis.${this.name}(JSON.stringify(data)); }`;
+        return `function (data) { globalThis[${JSON.stringify(this.name)}](JSON.stringify(data)); }`;
     }
 
     public readonly TFunctionValue: (data: T) => void = undefined!;

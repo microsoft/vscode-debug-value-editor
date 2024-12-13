@@ -1,14 +1,14 @@
-import { Disposable, IDisposable } from "../utils/disposables";
-import { IObservable, autorun } from "../utils/observables/observable";
-import { derived, derivedWithStore } from "../utils/observables/observableInternal/derived";
+import { Disposable } from "../utils/disposables";
+import { derived, derivedWithStore, autorun } from "../utils/observables/observable";
 import { ErrorMessage } from "../utils/utils";
-import { DebugSessionProxy, DebugSessionService } from "./DebugSessionService";
-import { AvailablePropertyInfo } from "./JsDebugSupport";
+import { DebugSessionService } from "./DebugSessionService";
+import { IDebugSupport, IProperty } from "./IDebugSupport";
+
 
 export class ActiveSessionPropertyFactory extends Disposable {
     constructor(
         private readonly _debugSessionService: DebugSessionService,
-        private readonly _debugSupport: IDebugSupport,
+        private readonly _debugSupport: IDebugSupport
     ) {
         super();
     }
@@ -17,47 +17,6 @@ export class ActiveSessionPropertyFactory extends Disposable {
         return new DispatchingProperty(expression, this._debugSessionService, this._debugSupport, sessionName);
     }
 }
-
-export interface IDebugSupport extends IDisposable {
-    getAvailableProperties(debugSession: DebugSessionProxy): IObservable<PropertyInformation[]> | undefined;
-
-    createProperty(debugSession: DebugSessionProxy, expression: string, initialValue: string | undefined): IProperty | undefined;
-
-    getRequestHandler(debugSession: DebugSessionProxy): IObservable<IRequestHandler | undefined> | undefined;
-}
-
-export interface IRequestHandler {
-    sendRequest(requestData: unknown): Promise<void>;
-}
-
-export class PropertyInformation {
-    static from(e: AvailablePropertyInfo, session: DebugSessionProxy): PropertyInformation {
-        if (typeof e === 'string') {
-            return new PropertyInformation(e, e, session);
-        } else {
-            return new PropertyInformation(e.expression, e.label, session);
-        }
-    }
-
-    constructor(
-        public readonly expression: string | undefined,
-        public readonly label: string,
-        public readonly session: DebugSessionProxy,
-    ) { }
-}
-
-export interface IProperty extends IDisposable {
-    readonly expression: string;
-
-    readonly value: IObservable<string | undefined>;
-    readonly fileExtension: IObservable<string | undefined>;
-    readonly error: IObservable<string | undefined>;
-    readonly state: IObservable<'noSession' | 'initializing' | 'upToDate' | 'updating' | 'error'>;
-
-    setValue(newValue: string): Promise<void | ErrorMessage>;
-    refresh(): void;
-}
-
 class DispatchingProperty extends Disposable implements IProperty {
     private readonly _session = derived(this, reader => {
         if (this.sessionName === undefined) {
@@ -89,7 +48,7 @@ class DispatchingProperty extends Disposable implements IProperty {
         public readonly expression: string,
         private readonly debugSessionService: DebugSessionService,
         private readonly debugSupport: IDebugSupport,
-        private readonly sessionName: string | undefined,
+        private readonly sessionName: string | undefined
     ) {
         super();
     }

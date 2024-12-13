@@ -29,7 +29,10 @@ export class DebugSessionService extends Disposable {
         this._register(debug.onDidStartDebugSession(debugSession => {
             const debugSessionProxy = new DebugSessionProxy(debugSession);
             this._debugSessions.set(debugSession, debugSessionProxy);
-            debugSessionProxy.onDidTerminate(() => this._debugSessions.delete(debugSession));
+            debugSessionProxy.onDidTerminate(() => {
+                this._debugSessions.delete(debugSession);
+                this._debugSessionsChangedSignal.trigger(undefined);
+            });
 
             this._debugSessionsChangedSignal.trigger(undefined);
         }));
@@ -38,8 +41,6 @@ export class DebugSessionService extends Disposable {
             const session = this._debugSessions.get(debugSession);
             if (session) {
                 session['_onDidTerminateEmitter'].fire();
-                this._debugSessions.delete(debugSession);
-                this._debugSessionsChangedSignal.trigger(undefined);
             }
         }));
 
@@ -81,6 +82,7 @@ export class DebugSessionService extends Disposable {
                     },
                     onDidSendMessage: async (msg) => {
                         const m = msg as DapMessage;
+
                         if (m.type === "event") {
                             if (m.event === "stopped") {
                                 const threadId = m.body.threadId;
@@ -161,6 +163,26 @@ export class DebugSessionProxy {
         }
     }
 
+    public async getPreferredUILocation(args: { url?: string, source?: { path: string }, line: number, column: number }): Promise<PreferredUILocation> {
+        try {
+            const reply = (await this.session.customRequest("getPreferredUILocation", {
+                url: args.url,
+                source: args.source,
+                line: args.line,
+                column: args.column,
+            })) as PreferredUILocation;
+            return reply;
+        } catch (e) {
+            console.error(e);
+            throw e;
+        }
+    }
+}
+
+export interface PreferredUILocation {
+    source: { name: string; path: string };
+    line: number;
+    column: number;
 }
 
 export interface StackTraceInfo {

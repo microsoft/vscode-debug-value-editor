@@ -25,7 +25,8 @@
 		"onFileSystem:debug-value",
 		"onLanguage:javascript",
 		"onLanguage:typescript",
-		"onCommand:debug-value-editor.debug-and-send-request"
+		"onCommand:debug-value-editor.debug-and-send-request",
+		"*"
 	],
 	"repository": {
 		"type": "git",
