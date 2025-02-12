@@ -1,3 +1,14 @@
+export function getFirstStackFrameOutsideOf(stack: string, folderName: string): ILocation {
+    const lines = stack.split('\n');
+    for (const line of lines.slice(1)) {
+        if (line.includes(folderName)) {
+            continue;
+        }
+        return parseLine(line);
+    }
+    throw new Error('Could not find stack outside of ' + folderName);
+}
+
 export interface ILocation {
     fileName: string;
     line: number;
@@ -16,15 +27,4 @@ function parseLine(stackLine: string): ILocation {
         column: parseInt(match[3]),
         id: stackLine,
     };
-}
-
-export function getFirstStackFrameOutsideOf(stack: string, folderName: string): ILocation {
-    const lines = stack.split('\n');
-    for (const line of lines.slice(1)) {
-        if (line.includes(folderName)) {
-            continue;
-        }
-        return parseLine(line);
-    }
-    throw new Error('Could not find stack outside of ' + folderName);
 }

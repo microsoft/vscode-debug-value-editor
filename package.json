@@ -32,7 +32,7 @@
 		"type": "git",
 		"url": "https://github.com/microsoft/vscode-debug-value-editor"
 	},
-	"main": "./dist/extension.js",
+	"main": "./dist/entry.js",
 	"contributes": {
 		"commands": [
 			{
@@ -78,6 +78,7 @@
 		"typescript": "^5.5.0-dev.20240425"
 	},
 	"dependencies": {
+		"@hediet/node-reload": "^0.8.0",
 		"ws": "^8.17.1"
 	},
 	"files": [

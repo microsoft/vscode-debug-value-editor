@@ -115,10 +115,28 @@
     jsonwebtoken "^9.0.0"
     uuid "^8.3.0"
 
+"@hediet/node-reload@^0.8.0":
+  version "0.8.0"
+  resolved "https://registry.yarnpkg.com/@hediet/node-reload/-/node-reload-0.8.0.tgz#1a880cba60c37c0b2c7f38112654d0e578ae7999"
+  integrity sha512-TX+RrahcrMAPdJAE4V3rD2rggHJHJ/jJoedx7vmDVBn8/NQRhXLc+9OqXQAu28toiSP5p9cJ77bVcrv1xr4Mmg==
+  dependencies:
+    "@types/node" "^12.0.7"
+    "@types/stack-trace" "^0.0.29"
+
 "@types/node@*", "@types/node@^13.13.5":
   version "13.13.5"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-13.13.5.tgz#96ec3b0afafd64a4ccea9107b75bf8489f0e5765"
   integrity sha512-3ySmiBYJPqgjiHA7oEaIo2Rzz0HrOZ7yrNO5HWyaE5q0lQ3BppDZ3N53Miz8bw2I7gh1/zir2MGVZBvpb1zq9g==
+
+"@types/node@^12.0.7":
+  version "12.20.55"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-12.20.55.tgz#c329cbd434c42164f846b909bd6f85b5537f6240"
+  integrity sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ==
+
+"@types/stack-trace@^0.0.29":
+  version "0.0.29"
+  resolved "https://registry.yarnpkg.com/@types/stack-trace/-/stack-trace-0.0.29.tgz#eb7a7c60098edb35630ed900742a5ecb20cfcb4d"
+  integrity sha512-TgfOX+mGY/NyNxJLIbDWrO9DjGoVSW9+aB8H2yy1fy32jsvxijhmyJI9fDFgvz3YP4lvJaq9DzdR/M1bOgVc9g==
 
 "@types/vscode@^1.85.0":
   version "1.85.0"

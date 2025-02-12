@@ -1,4 +1,4 @@
-import { autorun, derived, observableValue } from "./observableInternal/index";
+import { autorun, derived, observableValue } from "../observableInternal/index";
 
 const v = observableValue('test', 0);
 
@@ -13,4 +13,3 @@ setInterval(() => {
     v.set(v.get() + 1, undefined);
     //console.log('test', v.get());
 }, 200);
-

@@ -1,15 +1,16 @@
-import { Position, Range, window } from "vscode";
-import type { DebuggerApi, DeclarationId, ObjectId } from "../../demo/src/observableInternal/debugger/debuggerApi";
-import { DebugSessionProxy, DebugSessionService } from "../debugService/DebugSessionService";
+import { DecorationOptions, languages, MarkdownString, Position, Range, ThemeColor, window } from "vscode";
+import { DebugSessionService } from "../debugService/DebugSessionService";
 import { IDebugSupport } from "../debugService/IDebugSupport";
 import { Disposable } from "../utils/disposables";
-import { autorun, IReader, observableValue } from "../utils/observables/observable";
-import { mapObservableArrayCached, observableFromEvent, observableSignal } from "../utils/observables/observableInternal/utils";
-import { createChannelFactoryFromDebugChannel } from "./createChannelFactoryFromDebugClient";
-import { ChannelFactory, SimpleTypedRpcConnection } from "./rpc";
+import { autorun } from "../utils/observables/observable";
+import { constObservable, mapObservableArrayCached, observableFromEvent } from "../utils/observables/observableInternal/utils";
+import { createRpcChannelFromDebugChannel } from "./createConnectorFromDebugClient";
+import { isDefined } from "../utils/utils";
+import { ObservableDevToolsModel } from "./ObservableDevToolsModel";
+import { IObsInstanceRef } from "./debuggerApi";
 
 export class ObservableDevToolsFeature extends Disposable {
-    private readonly _openEditors = observableFromEvent(window.onDidChangeVisibleTextEditors, e => window.visibleTextEditors);
+    private readonly _openEditors = observableFromEvent(window.onDidChangeVisibleTextEditors, () => [...window.visibleTextEditors]);
 
     constructor(
         private readonly _debugSessionService: DebugSessionService,
@@ -19,116 +20,111 @@ export class ObservableDevToolsFeature extends Disposable {
         super();
 
         const states = mapObservableArrayCached(this, this._debugSessionService.debugSessions, (session, store) => {
-            const observableDevToolsChannel = this._debugSupport.getAvailableChannels(session).map(c => c.find(c => c.channelId === 'observableDevTools'));
+            const observableDevToolsChannel = this._debugSupport.getChannel(session, 'observableDevTools');
 
             return observableDevToolsChannel.map(channel => {
                 if (!channel) { return undefined; }
 
-                const channelFactory = createChannelFactoryFromDebugChannel(channel);
+                const connectionLink = createRpcChannelFromDebugChannel(channel);
 
-                const states = store.add(new ObservableStates(channelFactory, session));
+                const states = store.add(new ObservableDevToolsModel(connectionLink, session));
                 return states;
             }).recomputeInitiallyAndOnChange(store);
 
         }).recomputeInitiallyAndOnChange(this._store);
 
-        const type = window.createTextEditorDecorationType({
+        const firstState = states.map((states, reader) => states.find(s => s.read(reader)) ?? constObservable(undefined)).flatten();
+
+        this._register(languages.registerHoverProvider({ language: 'typescript' }, {
+            provideHover: async (document, position, token) => {
+                if (document.lineAt(position.line).text.length === position.character) { // end of line
+                    const s = firstState.get();
+                    if (!s) { return undefined; }
+                    const decls = s.getDeclarationsInFile(document.uri.fsPath, undefined);
+                    const declsAtLine = decls.filter(d => d.resolvedLocation.get()?.line === position.line + 1);
+                    const instances = declsAtLine.flatMap(d => s.getInstancesByDeclaration(d, undefined));
+
+
+                    function formatInlineCode(value: string): string {
+                        return "`" + value + "`";
+                    }
+
+                    function formatRefs(refs: IObsInstanceRef[]): string {
+                        return refs.map(r => ` * ${formatInlineCode(r.name)}`).join('\n');
+                    }
+
+                    return {
+                        contents: await Promise.all(instances.map(async i => {
+                            if (i.type === 'autorun') {
+                                const info = await s.getAutorunInfo(i.instanceId);
+                                const deps = `#### Dependencies\n${formatRefs(info.dependencies)}`;
+                                return new MarkdownString(`### Autorun ${formatInlineCode(i.name)}\n\n${deps}`);
+                            }
+                            if (i.type === 'derived') {
+                                const info = await s.getDerivedInfo(i.instanceId);
+                                const deps = `#### Dependencies\n${formatRefs(info.dependencies)}`;
+                                const obs = `#### Observers\n${formatRefs(info.observers)}`;
+                                return new MarkdownString(`### Derived ${formatInlineCode(i.name)}\n\n${deps}\n\n${obs}\n---`);
+                            }
+                            return '';
+                        })),
+                    };
+                }
+            }
+        }));
+
+        const type = this._register(window.createTextEditorDecorationType({
             isWholeLine: true,
-        });
+        }));
 
         mapObservableArrayCached(this, this._openEditors, (editor, store) => {
+            const fsPath = editor.document.uri.fsPath;
 
             store.add(autorun(reader => {
-                const ss = states.read(reader);
-                const observables = ss.flatMap(s => [...s?.read(reader)?.getObservables(reader).values() ?? []]).filter(o => o.declaration.location.read(reader)?.path === editor.document.uri.fsPath);
+                const s = firstState.read(reader);
+                let decorationOptions: DecorationOptions[];
+                if (!s) {
+                    decorationOptions = [];
+                } else {
+                    const declarations = s?.getDeclarationsInFile(fsPath, reader) ?? [];
+                    const declarationsByLine = groupBy(declarations, d => d.resolvedLocation.read(reader)?.line);
 
-                editor.setDecorations(type, observables.map(o => ({
-                    range: rangeAtLineNumber(o.declaration.location.read(reader)?.line ?? 1),
-                    renderOptions: {
-                        after: {
-                            contentText: '  ' + o.value.read(reader)
-                        }
-                    }
-                })))
+                    decorationOptions = [...declarationsByLine].map<DecorationOptions | undefined>(([line, declaration]) => {
+                        if (line === undefined) { return undefined; }
+                        const instances = declaration.flatMap(d => s.getInstancesByDeclaration(d, reader));
+
+                        return {
+                            range: rangeAtLineNumber(line),
+                            renderOptions: {
+                                after: {
+                                    contentText: ' ' + instances.map(o => o.getMessage(reader)).join(', '),
+                                    color: new ThemeColor("editor.inlineValuesForeground"),
+                                },
+                            }
+                        };
+                    }).filter(isDefined);
+                }
+                editor.setDecorations(type, decorationOptions);
             }));
 
         }).recomputeInitiallyAndOnChange(this._store);
-
-        this._register(autorun(() => {
-
-        }));
     }
+}
+
+function groupBy<T, TKey>(items: T[], keySelector: (item: T) => TKey): Map<TKey, T[]> {
+    const result = new Map<TKey, T[]>();
+    for (const item of items) {
+        const key = keySelector(item);
+        let group = result.get(key);
+        if (!group) {
+            group = [];
+            result.set(key, group);
+        }
+        group.push(item);
+    }
+    return result;
 }
 
 function rangeAtLineNumber(lineNumber: number) {
     return new Range(new Position(lineNumber - 1, 0), new Position(lineNumber - 1, 0));
-}
-
-class SourceDeclaration {
-    public readonly location = observableValue<SourceLocation | undefined>(this, undefined);
-
-    constructor(
-        public readonly declarationId: DeclarationId,
-    ) { }
-}
-
-class SourceLocation {
-    constructor(
-        public readonly path: string,
-        public readonly line: number,
-        public readonly column: number,
-    ) { }
-}
-
-class ObservableInfo {
-    public readonly value = observableValue<string | undefined>(this, undefined);
-    public readonly listenerCount = observableValue<number>(this, 0);
-
-    constructor(
-        public readonly observableId: ObjectId,
-        public readonly declaration: SourceDeclaration,
-    ) { }
-}
-
-class ObservableStates extends Disposable {
-    private readonly _declarations = new Map<DeclarationId, SourceDeclaration>();
-    public readonly _observables = new Map<ObjectId, ObservableInfo>();
-    private readonly _observablesSignal = observableSignal(this);
-
-    constructor(channelFactory: ChannelFactory, session: DebugSessionProxy) {
-        super();
-
-        const rpc = SimpleTypedRpcConnection.createHost<DebuggerApi>(channelFactory, {
-            notifications: {
-                onDeclarationDiscovered: (declarationId, type, url, line, column) => {
-                    const decl = new SourceDeclaration(declarationId);
-                    this._declarations.set(declarationId, decl);
-                    session.getPreferredUILocation({ url: url, line: line - 1, column: column - 1 }).then((result) => {
-                        decl.location.set(new SourceLocation(result.source.path, result.line + 1, result.column + 1), undefined);
-                    });
-                },
-                onObservableListenerCountChanged: (declarationId, observableId, newListenerCount) => {
-                    const declaration = this._declarations.get(declarationId)!;
-                    let observable = this._observables.get(observableId);
-                    if (!observable) {
-                        observable = new ObservableInfo(observableId, declaration);
-                        this._observables.set(observableId, observable);
-                        this._observablesSignal.trigger(undefined);
-                    }
-                    observable.listenerCount.set(newListenerCount, undefined);
-                },
-                onObservableChanged: (observableId, newFormattedValue) => {
-                    const observable = this._observables?.get(observableId);
-                    if (!observable) { return; }
-                    observable.value.set(newFormattedValue, undefined);
-                },
-            },
-            requests: {},
-        });
-    }
-
-    public getObservables(reader: IReader) {
-        this._observablesSignal.read(reader);
-        return this._observables;
-    }
 }

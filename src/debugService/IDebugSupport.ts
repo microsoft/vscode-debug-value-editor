@@ -11,8 +11,7 @@ export interface IDebugSupport extends IDisposable {
     createProperty(debugSession: DebugSessionProxy, expression: string, initialValue: string | undefined): IProperty | undefined;
 
     getAvailableChannels(debugSession: DebugSessionProxy): IObservable<readonly IDebugChannel[]>;
-
-    translateSourceMap(debugSession: DebugSessionProxy, location: ISourceLocation): Promise<ISourceLocation | undefined>;
+    getChannel(debugSession: DebugSessionProxy, channelId: string): IObservable<IDebugChannel | undefined>;
 }
 
 export interface ISourceLocation {
@@ -52,10 +51,8 @@ export interface IProperty extends IDisposable {
 export interface IDebugChannel {
     get channelId(): string;
 
-    connect(): void;
+    sendRequest(requestData: unknown): Promise<unknown>;
 
+    listenForNotifications(): void;
     onNotification: Event<{ notificationData: unknown }>;
-    sendRequest(requestData: unknown): Promise<RequestResult>;
 }
-
-export type RequestResult = { type: 'result', value: unknown } | { type: 'error', value: unknown };

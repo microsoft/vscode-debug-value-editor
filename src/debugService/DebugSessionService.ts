@@ -26,7 +26,11 @@ export class DebugSessionService extends Disposable {
     constructor() {
         super();
 
-        this._register(debug.onDidStartDebugSession(debugSession => {
+        const initializeDebugSession = (debugSession: DebugSession) => {
+            if (this._debugSessions.has(debugSession)) {
+                return;
+            }
+
             const debugSessionProxy = new DebugSessionProxy(debugSession);
             this._debugSessions.set(debugSession, debugSessionProxy);
             debugSessionProxy.onDidTerminate(() => {
@@ -35,7 +39,16 @@ export class DebugSessionService extends Disposable {
             });
 
             this._debugSessionsChangedSignal.trigger(undefined);
+        };
+
+        this._register(autorun(reader => {
+            const activeSession = this._activeSession.read(reader);
+            if (activeSession) {
+                initializeDebugSession(activeSession);
+            }
         }));
+
+        this._register(debug.onDidStartDebugSession(initializeDebugSession));
 
         this._register(debug.onDidTerminateDebugSession(debugSession => {
             const session = this._debugSessions.get(debugSession);
@@ -166,13 +179,21 @@ export class DebugSessionProxy {
     public async getPreferredUILocation(args: { url?: string, source?: { path: string }, line: number, column: number }): Promise<PreferredUILocation> {
         try {
             const reply = (await this.session.customRequest("getPreferredUILocation", {
-                url: args.url,
+                originalUrl: args.url,
                 source: args.source,
                 line: args.line,
                 column: args.column,
             })) as PreferredUILocation;
             return reply;
         } catch (e) {
+            if (args.url) {
+                return {
+                    source: { name: args.url, path: args.url },
+                    line: args.line,
+                    column: args.column,
+                };
+            }
+
             console.error(e);
             throw e;
         }

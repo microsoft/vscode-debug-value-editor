@@ -1,12 +1,12 @@
 import { Disposable } from "../utils/disposables";
-import { IObservable, ITransaction, autorun, constObservable, observableValue, transaction } from "../utils/observables/observable";
-import { toDisposable } from "../utils/observables/observableInternal/lifecycle";
+import { IObservable, ITransaction, autorun, constObservable, derived, observableValue, transaction } from "../utils/observables/observable";
 import { ErrorMessage } from "../utils/utils";
 import { Binding, CdpClient } from "./CdpClient";
 import { assumeType } from "../utils/Validator";
 import { DebugSessionProxy } from "./DebugSessionService";
-import { IProperty, IDebugSupport, PropertyInformation, IDebugChannel, ISourceLocation } from "./IDebugSupport";
+import { IProperty, IDebugSupport, PropertyInformation, IDebugChannel } from "./IDebugSupport";
 import { EventEmitter } from "vscode";
+import { toDisposable } from "../utils/observables/observableInternal/commonFacade/deps";
 
 export class JsDebugSupport extends Disposable implements IDebugSupport {
     private readonly _debugSessions = new Map<DebugSessionProxy, JsDebugSession>();
@@ -56,8 +56,9 @@ export class JsDebugSupport extends Disposable implements IDebugSupport {
         return jsDebugSession?.availableDebugChannels ?? constObservable([]);
     }
 
-    async translateSourceMap(debugSession: DebugSessionProxy, location: ISourceLocation): Promise<ISourceLocation | undefined> {
-        return undefined;
+    getChannel(debugSession: DebugSessionProxy, channelId: string): IObservable<IDebugChannel | undefined> {
+        const c = this.getAvailableChannels(debugSession);
+        return derived(reader => c.read(reader).find(c => c.channelId === channelId));
     }
 }
 
@@ -186,7 +187,7 @@ export class JsDebugSession extends Disposable {
                 const newChannel: IDebugChannel = {
                     channelId: channelId,
                     onNotification: onNotificationEmitter.event,
-                    connect: async () => {
+                    listenForNotifications: async () => {
                         function connect(channelId: string, debugChannelSendNotificationBindingFn: typeof debugChannelSendNotificationBinding.TFunctionValue) {
                             const g = globalThis as any as GlobalObj;
 
@@ -216,7 +217,7 @@ export class JsDebugSession extends Disposable {
                             const handler = g.$$debugValueEditor_runtime?.debugChannels.get(channelId);
 
                             if (handler) {
-                                return handler.handleRequest(data);
+                                return JSON.stringify(handler.handleRequest(data));
                             } else {
                                 throw new Error(`handler ${channelId} is missing`);
                             }

@@ -12,6 +12,9 @@
 				"empty",
 				"--extensionDevelopmentPath=${workspaceFolder}"
 			],
+			"env": {
+				"DEBUG_EXTENSION": "1"
+			},
 			"outFiles": ["${workspaceFolder}/dist/**/*.js"],
 			"preLaunchTask": "npm: watch"
 		}

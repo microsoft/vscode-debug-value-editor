@@ -1,12 +1,14 @@
 
-export type ChannelFactory = (handler: IChannelHandler) => IChannel;
-
 export interface IChannel {
+    connect(listener: IMessageListener): IMessageSender;
+}
+
+export interface IMessageSender {
     sendNotification(data: unknown): void;
     sendRequest(data: unknown): Promise<RpcRequestResult>;
 }
 
-export interface IChannelHandler {
+export interface IMessageListener {
     handleNotification(notificationData: unknown): void;
     handleRequest(requestData: unknown): Promise<RpcRequestResult> | RpcRequestResult;
 }
@@ -31,22 +33,22 @@ export type MakeSideAsync<T extends Side> = {
 };
 
 export class SimpleTypedRpcConnection<T extends Side> {
-    public static createHost<T extends API>(channelFactory: ChannelFactory, handler: T['host']): SimpleTypedRpcConnection<MakeSideAsync<T['client']>> {
-        return new SimpleTypedRpcConnection(channelFactory, handler);
+    public static createHost<T extends API>(channel: IChannel, handler: T['host']): SimpleTypedRpcConnection<MakeSideAsync<T['client']>> {
+        return new SimpleTypedRpcConnection(channel, handler);
     }
 
-    public static createClient<T extends API>(channelFactory: ChannelFactory, handler: T['client']): SimpleTypedRpcConnection<MakeSideAsync<T['host']>> {
-        return new SimpleTypedRpcConnection(channelFactory, handler);
+    public static createClient<T extends API>(channel: IChannel, handler: T['client']): SimpleTypedRpcConnection<MakeSideAsync<T['host']>> {
+        return new SimpleTypedRpcConnection(channel, handler);
     }
 
     public readonly api: T;
-    private readonly _channel: IChannel;
+    private readonly _sender: IMessageSender;
 
     private constructor(
-        private readonly _channelFactory: ChannelFactory,
+        private readonly _channel: IChannel,
         private readonly _handler: Side,
     ) {
-        this._channel = this._channelFactory({
+        this._sender = this._channel.connect({
             handleNotification: (notificationData) => {
                 const m = notificationData as OutgoingMessage;
                 this._handler.notifications[m[0]](...m[1]);
@@ -65,7 +67,7 @@ export class SimpleTypedRpcConnection<T extends Side> {
         const requests = new Proxy({}, {
             get: (target, key: string) => {
                 return async (...args: any[]) => {
-                    const result = await this._channel.sendRequest([key, args] satisfies OutgoingMessage);
+                    const result = await this._sender.sendRequest([key, args] satisfies OutgoingMessage);
                     if (result.type === 'error') {
                         throw result.value;
                     } else {
@@ -78,7 +80,7 @@ export class SimpleTypedRpcConnection<T extends Side> {
         const notifications = new Proxy({}, {
             get: (target, key: string) => {
                 return (...args: any[]) => {
-                    this._channel.sendNotification([key, args] satisfies OutgoingMessage);
+                    this._sender.sendNotification([key, args] satisfies OutgoingMessage);
                 }
             }
         });
@@ -91,3 +93,33 @@ type OutgoingMessage = [
     method: string,
     args: unknown[],
 ];
+
+export function createLoggingConnectionLink(baseChannel: IChannel): IChannel {
+    return {
+        connect: (listener: IMessageListener): IMessageSender => {
+            const base = baseChannel.connect({
+                handleNotification: (notificationData) => {
+                    console.log('<< NFN: ', JSON.stringify(notificationData));
+                    listener.handleNotification(notificationData);
+                },
+                handleRequest: (requestData) => {
+                    console.log('<< REQ: ', JSON.stringify(requestData));
+                    return listener.handleRequest(requestData);
+                },
+            });
+
+            return {
+                sendNotification: (data) => {
+                    console.log('>> NFN: ', JSON.stringify(data));
+                    base.sendNotification(data);
+                },
+                sendRequest: async (data) => {
+                    console.log('>> REQ: ', JSON.stringify(data));
+                    const result = await base.sendRequest(data);
+                    console.log('<< RES: ', JSON.stringify(result));
+                    return result;
+                },
+            };
+        }
+    };
+}

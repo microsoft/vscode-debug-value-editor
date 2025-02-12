@@ -14,7 +14,9 @@
 			"type": "node",
 			"request": "launch",
 			"name": "Visualize Test",
-			"skipFiles": ["<node_internals>/**"],
+			"skipFiles": [
+				"<node_internals>/**"
+			],
 			"program": "${workspaceFolder}\\playground-reverse.js"
 		},
 		{
@@ -22,9 +24,11 @@
 			"request": "launch",
 			"console": "integratedTerminal",
 			"name": "Observable Test",
-			"skipFiles": ["<node_internals>/**"],
+			"skipFiles": [
+				"<node_internals>/**"
+			],
 			"runtimeExecutable": "tsx",
-			"program": "${workspaceFolder}\\src\\index"
+			"program": "${file}"
 		}
 	]
 }
