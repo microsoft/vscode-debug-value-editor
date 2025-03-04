@@ -451,7 +451,7 @@ class CdpEvaluator {
     }
 }
 
-class DebugSessionEvaluator {
+/*class DebugSessionEvaluator {
     constructor(
         private readonly _session: DebugSessionProxy,
     ) { }
@@ -484,7 +484,7 @@ class DebugSessionEvaluator {
         }
         return data.value as TResult;
     }
-}
+}*/
 
 type GlobalObj = {
     $$debugValueEditor_runtime: {
