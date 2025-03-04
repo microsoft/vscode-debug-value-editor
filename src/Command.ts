@@ -17,7 +17,7 @@ export class CommandDef<T> {
         };
     }
 
-    register(run: (args: T) => Promise<void> | void): IDisposable {
+    register(run: (args: T) => Promise<unknown> | unknown): IDisposable {
         return commands.registerCommand(this.id, run);
     }
 }

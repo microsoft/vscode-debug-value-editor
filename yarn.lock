@@ -115,10 +115,24 @@
     jsonwebtoken "^9.0.0"
     uuid "^8.3.0"
 
+"@hediet/node-reload@^0.10.0":
+  version "0.10.0"
+  resolved "https://registry.yarnpkg.com/@hediet/node-reload/-/node-reload-0.10.0.tgz#6dd51df1f3d87216ddf2c09cfaf8fcfec7d0c908"
+  integrity sha512-q5gVVBYLnlX5e9yMlJIMEdBkLdrZdl7mzCJWhLHICtyDoxr/HmeV9CQ++29TA/a2xL5EuMWlZo8RXqrGQVU6Hg==
+  dependencies:
+    "@types/node" "^22.12.0"
+
 "@types/node@*", "@types/node@^13.13.5":
   version "13.13.5"
   resolved "https://registry.yarnpkg.com/@types/node/-/node-13.13.5.tgz#96ec3b0afafd64a4ccea9107b75bf8489f0e5765"
   integrity sha512-3ySmiBYJPqgjiHA7oEaIo2Rzz0HrOZ7yrNO5HWyaE5q0lQ3BppDZ3N53Miz8bw2I7gh1/zir2MGVZBvpb1zq9g==
+
+"@types/node@^22.12.0":
+  version "22.13.1"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-22.13.1.tgz#a2a3fefbdeb7ba6b89f40371842162fac0934f33"
+  integrity sha512-jK8uzQlrvXqEU91UxiK5J7pKHyzgnI1Qnl0QDHIgVGuolJhRb9EEl28Cj9b3rGR8B2lhFCtvIm5os8lFnO/1Ew==
+  dependencies:
+    undici-types "~6.20.0"
 
 "@types/vscode@^1.85.0":
   version "1.85.0"
@@ -396,6 +410,11 @@ detect-libc@^2.0.0:
   version "2.0.3"
   resolved "https://registry.yarnpkg.com/detect-libc/-/detect-libc-2.0.3.tgz#f0cd503b40f9939b894697d19ad50895e30cf700"
   integrity sha512-bwy0MGW55bG41VqxxypOsdSdGqLwXPI/focwgTYCFMbdUiBAxLg9CFzG08sz2aqzknwiX7Hkl0bQENjg8iLByw==
+
+devtools-protocol@^0.0.1419081:
+  version "0.0.1419081"
+  resolved "https://registry.yarnpkg.com/devtools-protocol/-/devtools-protocol-0.0.1419081.tgz#17ff4eda4a699b66538a2624faef0eada9dce47c"
+  integrity sha512-G2h1DRApKUXfTZ+HFBCl1uPWPpQi5uavA4ygugrpjRKtf2iRD9NcBq4HMufm6YlNPHGQU8H8AZoWWE35+eNPuA==
 
 dom-serializer@^2.0.0:
   version "2.0.0"
@@ -1135,6 +1154,11 @@ underscore@^1.12.1:
   version "1.13.6"
   resolved "https://registry.yarnpkg.com/underscore/-/underscore-1.13.6.tgz#04786a1f589dc6c09f761fc5f45b89e935136441"
   integrity sha512-+A5Sja4HP1M08MaXya7p5LvjuM7K6q/2EaC0+iovj/wOcMsTzMvDFbasi/oSapiwOlt252IqsKqPjCl7huKS0A==
+
+undici-types@~6.20.0:
+  version "6.20.0"
+  resolved "https://registry.yarnpkg.com/undici-types/-/undici-types-6.20.0.tgz#8171bf22c1f588d1554d55bf204bc624af388433"
+  integrity sha512-Ny6QZ2Nju20vw1SRHe3d9jVu6gJ+4e3+MMpqu7pqE5HT6WsTSlce++GQmK5UXS8mzV8DSYHrQH+Xrf2jVcuKNg==
 
 url-join@^4.0.1:
   version "4.0.1"

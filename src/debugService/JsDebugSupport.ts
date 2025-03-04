@@ -1,16 +1,17 @@
-import { Disposable } from "../utils/disposables";
-import { IObservable, ITransaction, autorun, observableValue, transaction } from "../utils/observables/observable";
-import { toDisposable } from "../utils/observables/observableInternal/lifecycle";
+import { Disposable, DisposableStore, IDisposable } from "../utils/disposables";
+import { IObservable, ITransaction, autorun, constObservable, derived, observableValue, transaction } from "../utils/observables/observable";
 import { ErrorMessage } from "../utils/utils";
 import { Binding, CdpClient } from "./CdpClient";
 import { assumeType } from "../utils/Validator";
 import { DebugSessionProxy } from "./DebugSessionService";
-import { IProperty, IDebugSupport, PropertyInformation, IRequestHandler } from "./debugService";
+import { IProperty, IDebugSupport, PropertyInformation, IDebugChannel } from "./IDebugSupport";
+import { EventEmitter } from "vscode";
+import { toDisposable } from "../utils/observables/observableInternal/commonFacade/deps";
 
 export class JsDebugSupport extends Disposable implements IDebugSupport {
     private readonly _debugSessions = new Map<DebugSessionProxy, JsDebugSession>();
 
-    private getDebugSession(debugSession: DebugSessionProxy): JsDebugSession | undefined {
+    public getDebugSession(debugSession: DebugSessionProxy): JsDebugSession | undefined {
         // https://github.com/microsoft/vscode-js-debug/blob/2152210dc7c3933e2b4ef7c72d72cf2fef765760/src/common/contributionUtils.ts#L65
         const supportedSessionTypes = [
             'pwa-extensionHost',
@@ -18,6 +19,8 @@ export class JsDebugSupport extends Disposable implements IDebugSupport {
             'pwa-node',
             'pwa-chrome',
             'pwa-msedge',
+            'node',
+            'chrome'
         ];
 
         if (!supportedSessionTypes.includes(debugSession.session.type)) {
@@ -50,9 +53,22 @@ export class JsDebugSupport extends Disposable implements IDebugSupport {
         return new JsProperty(jsDebugSession, expression, initialValue);
     }
 
-    getRequestHandler(debugSession: DebugSessionProxy): IObservable<IRequestHandler | undefined> | undefined {
+    getAvailableChannels(debugSession: DebugSessionProxy): IObservable<readonly IDebugChannel[]> {
         const jsDebugSession = this.getDebugSession(debugSession);
-        return jsDebugSession?.requestHandler;
+        return jsDebugSession?.availableDebugChannels ?? constObservable([]);
+    }
+
+    getChannel(debugSession: DebugSessionProxy, channelId: string): IObservable<IDebugChannel | undefined> {
+        const c = this.getAvailableChannels(debugSession);
+        return derived(reader => c.read(reader).find(c => c.channelId === channelId));
+    }
+
+    override dispose(): void {
+        for (const jsDebugSession of this._debugSessions.values()) {
+            jsDebugSession.dispose();
+        }
+        this._debugSessions.clear();
+        super.dispose();
     }
 }
 
@@ -67,8 +83,10 @@ export class JsDebugSession extends Disposable {
 
     get availableProperties(): IObservable<PropertyInformation[]> { return this._availableProperties; }
 
-    private readonly _requestHandler = observableValue<IRequestHandler | undefined>(this, undefined);
-    get requestHandler(): IObservable<IRequestHandler | undefined> { return this._requestHandler; }
+    private readonly _availableDebugChannels = observableValue<IObservable<readonly IDebugChannel[]> | undefined>(this, undefined);
+    public readonly availableDebugChannels: IObservable<readonly IDebugChannel[]> = derived(this, reader => {
+        return this._availableDebugChannels.read(reader)?.read(reader) ?? [];
+    });
 
     constructor(
         public readonly debugSession: DebugSessionProxy
@@ -84,7 +102,16 @@ export class JsDebugSession extends Disposable {
             this._update(pausedStackFrameId);
         }));
 
-        this.checkCdp();
+        this.checkCdp().catch(e => {
+            console.warn('Error while initializing CDP', e);
+        });
+    }
+
+    public getCdpClient(): Promise<CdpClient | undefined> {
+        this.checkCdp().catch(e => {
+            console.warn('Error while initializing CDP', e);
+        });
+        return this._cdpInitializationPromise!;
     }
 
     private async checkCdp(): Promise<void> {
@@ -100,6 +127,8 @@ export class JsDebugSession extends Disposable {
         if (!client) { return undefined; }
         this._registerOrDispose(client);
 
+        const evaluator = new CdpEvaluator(client);
+
         await Promise.all([
             client.addBinding(promiseResolvedBinding, payload => {
                 const prop = [...this._references].find(p => p.expression === payload.expression);
@@ -114,96 +143,43 @@ export class JsDebugSession extends Disposable {
             client.addBinding(refreshBinding, _data => {
                 this._references.forEach(r => this._scheduleReadUpdate(r));
                 this._update(this.debugSession.pausedStackFrameId.get());
+            }),
+            client.addBinding(updateAvailablePropertiesBinding, payload => {
+                this._availableProperties.set(payload.expressions.map(e => PropertyInformation.from(e, this.debugSession)), undefined);
+            }).then(async () => {
+                type GlobalThisObj = {
+                    $$debugValueEditor_propertiesListenerInstalled?: boolean;
+                    $$debugValueEditor_properties: AvailablePropertyInfo[];
+                };
+
+                await evaluator.evaluate(
+                    function (updateAvailablePropertiesFn: typeof updateAvailablePropertiesBinding.TFunctionValue) {
+                        const g = globalThis as any as GlobalThisObj;
+                        if (g.$$debugValueEditor_propertiesListenerInstalled) {
+                            return;
+                        }
+                        let properties = g.$$debugValueEditor_properties;
+                        if (properties) {
+                            updateAvailablePropertiesFn({ expressions: properties });
+                        }
+
+                        Object.defineProperty(g, '$$debugValueEditor_properties', {
+                            get() { return properties; },
+                            set(value: AvailablePropertyInfo[]) {
+                                properties = value;
+                                updateAvailablePropertiesFn({ expressions: value });
+                            }
+                        });
+                        g.$$debugValueEditor_propertiesListenerInstalled = true;
+                    },
+                    updateAvailablePropertiesBinding.getFunctionValueS()
+                );
             })
         ]);
 
-        client.addBinding(updateAvailablePropertiesBinding, payload => {
-            this._availableProperties.set(payload.expressions.map(e => PropertyInformation.from(e, this.debugSession)), undefined);
-        }).then(async () => {
-            type GlobalThisObj = {
-                $$debugValueEditor_propertiesListenerInstalled?: boolean;
-                $$debugValueEditor_properties: AvailablePropertyInfo[];
-            };
-
-            function installPropertiesListener(updateAvailablePropertiesFn: typeof updateAvailablePropertiesBinding.TFunctionValue) {
-                const g = globalThis as any as GlobalThisObj;
-                if (g.$$debugValueEditor_propertiesListenerInstalled) {
-                    return;
-                }
-                let properties = g.$$debugValueEditor_properties;
-                if (properties) {
-                    updateAvailablePropertiesFn({ expressions: properties });
-                }
-
-                Object.defineProperty(g, '$$debugValueEditor_properties', {
-                    get() { return properties; },
-                    set(value: AvailablePropertyInfo[]) {
-                        properties = value;
-                        updateAvailablePropertiesFn({ expressions: value });
-                    }
-                });
-                g.$$debugValueEditor_propertiesListenerInstalled = true;
-            }
-
-            await this.debugSession.evaluate({
-                expression: `(${installPropertiesListener.toString()})(${updateAvailablePropertiesBinding.getFunctionValue()});`,
-                frameId: undefined,
-                context: 'repl',
-            });
-        });
-
-
-        interface GlobalObj {
-            $$debugValueEditor_runListenerInstalled?: boolean;
-            $$debugValueEditor_run?: (data: unknown) => void;
-        }
-        client.addBinding(runFunctionAvailableBinding, data => {
-            this._requestHandler.set({
-                sendRequest: async (requestData) => {
-                    function sendRequest(data: unknown) {
-                        const g = globalThis as any as GlobalObj;
-                        if (g.$$debugValueEditor_run) {
-                            return g.$$debugValueEditor_run(data);
-                        } else {
-                            throw new Error('run function is missing');
-                        }
-                    }
-                    const result = await this.debugSession.evaluate({
-                        expression: `(${sendRequest.toString()})(${JSON.stringify(requestData)})`,
-                        context: 'copy',
-                        frameId: undefined,
-                    });
-                    if (!result) {
-                        throw new Error('run function failed');
-                    }
-                }
-            }, undefined);
-        }).then(async () => {
-            function installPropertiesListener(runFunctionAvailableBindingFn: typeof runFunctionAvailableBinding.TFunctionValue) {
-                const g = globalThis as any as GlobalObj;
-                if (g.$$debugValueEditor_runListenerInstalled) {
-                    return;
-                }
-
-                let existingRunFn = g.$$debugValueEditor_run;
-                Object.defineProperty(g, '$$debugValueEditor_run', {
-                    get() { return existingRunFn; },
-                    set(value) {
-                        existingRunFn = value;
-                        runFunctionAvailableBindingFn({});
-                    }
-                });
-                g.$$debugValueEditor_runListenerInstalled = true;
-
-                if (existingRunFn) { runFunctionAvailableBindingFn({}); }
-            }
-
-            await this.debugSession.evaluate({
-                expression: `(${installPropertiesListener.toString()})(${runFunctionAvailableBinding.getFunctionValue()});`,
-                frameId: undefined,
-                context: 'repl',
-            });
-        });
+        const result = await createDebugChannelFeature(client, this.debugSession);
+        this._register(result);
+        this._availableDebugChannels.set(result.channels, undefined);
 
         return client;
     }
@@ -434,6 +410,228 @@ export class JsDebugSession extends Disposable {
         this._readUpdates.delete(reference);
         this._writeUpdates.delete(reference);
     }
+
+    public toString() {
+        return `JsDebugSupport(${this.debugSession.session.name})`;
+    }
+}
+
+class CdpEvaluator {
+    constructor(
+        private readonly _cdpClient: CdpClient,
+    ) {
+    }
+
+    async evaluate<TArgs extends any[], TResult>(selfContainedFn: (...args: TArgs) => TResult, ...args: TArgs): Promise<TResult> {
+        function serializeArg(arg: any) {
+            if (typeof arg === 'function') {
+                return arg();
+            }
+            return JSON.stringify(arg);
+        }
+
+        const result = await this._cdpClient.request('Runtime.evaluate', {
+            expression: `(() => {
+                try {
+                    const result = (${selfContainedFn.toString()})(${args.map(a => serializeArg(a)).join(', ')});
+                    return { kind: 'ok', value: result };
+                } catch (e) {
+                    return { kind: 'error', error: "" + e };
+                }
+            })()`,
+            returnByValue: true,
+        });
+
+        const data = result.result.value as { kind: 'ok'; value: unknown } | { kind: 'error'; error: string; };
+
+        if (data.kind === 'error') {
+            throw new Error(data.error);
+        }
+        return data.value as TResult;
+    }
+}
+
+class DebugSessionEvaluator {
+    constructor(
+        private readonly _session: DebugSessionProxy,
+    ) { }
+
+    async evaluate<TArgs extends any[], TResult>(selfContainedFn: (...args: TArgs) => TResult, ...args: TArgs): Promise<TResult> {
+        function serializeArg(arg: any) {
+            if (typeof arg === 'function') {
+                return arg();
+            }
+            return JSON.stringify(arg);
+        }
+
+        const result = await this._session.evaluate({
+            expression: `(() => {
+                try {
+                    const result = (${selfContainedFn.toString()})(${args.map(a => serializeArg(a)).join(', ')});
+                    return JSON.stringify({ kind: 'ok', value: result });
+                } catch (e) {
+                    return JSON.stringify({ kind: 'error', error: "" + e });
+                }
+            })()`,
+            frameId: undefined,
+            context: 'repl',
+        });
+
+        const data = JSON.parse(result.result) as { kind: 'ok'; value: unknown } | { kind: 'error'; error: string; };
+
+        if (data.kind === 'error') {
+            throw new Error(data.error);
+        }
+        return data.value as TResult;
+    }
+}
+
+type GlobalObj = {
+    $$debugValueEditor_runtime: {
+        debugChannelInstances: Map<string, { handleRequest: (data: unknown) => unknown }>;
+        debugChannelsCtors: IDebugValueEditorGlobals['$$debugValueEditor_debugChannels']
+    } | undefined;
+} & IDebugValueEditorGlobals;
+
+async function createDebugChannelFeature(client: CdpClient, debugSession: DebugSessionProxy): Promise<{ channels: IObservable<readonly IDebugChannel[]> } & IDisposable> {
+    const availableDebugChannels = observableValue<readonly IDebugChannel[]>('availableDebugChannels', []);
+
+    const notificationHandlers = new Map</* channelInstanceId */ string, EventEmitter<{ notificationData: unknown }>>();
+
+    const store = new DisposableStore();
+
+    store.add(await client.addBinding(debugChannelSendNotificationBinding, data => {
+        const handler = notificationHandlers.get(data.channelInstanceId);
+        if (handler) {
+            handler.fire({ notificationData: data.notificationData });
+        } else {
+            console.error(`No handler found for channel "${data.channelInstanceId}"`, data);
+        }
+    }));
+
+    const evaluator = new CdpEvaluator(client);
+
+    async function installRuntime() {
+        await evaluator.evaluate(
+            function (debugChannelRegisterBindingFn: typeof debugChannelRegisterBinding.TFunctionValue) {
+                const g = globalThis as any as GlobalObj;
+                if (!g.$$debugValueEditor_runtime) {
+                    const existingChannels = g.$$debugValueEditor_debugChannels ?? {};
+                    const proxied = new Proxy({}, {
+                        get: (target, key: string) => {
+                            return existingChannels[key];
+                        },
+                        set: (target, key: string, value: any) => {
+                            existingChannels[key] = value;
+                            debugChannelRegisterBindingFn({ channelIds: [key] });
+                            return true;
+                        },
+                    });
+                    Object.defineProperty(g, '$$debugValueEditor_debugChannels', {
+                        get() { return proxied; },
+                        set(value) {
+                            console.error('setting $$debugValueEditor_debugChannels after initialization is not supported');
+                        }
+                    });
+                    g.$$debugValueEditor_runtime = {
+                        debugChannelInstances: new Map(),
+                        debugChannelsCtors: existingChannels,
+                    };
+                }
+
+                const keys = Object.keys(g.$$debugValueEditor_runtime.debugChannelsCtors);
+                if (keys.length > 0) {
+                    debugChannelRegisterBindingFn({ channelIds: keys });
+                }
+            },
+            debugChannelRegisterBinding.getFunctionValueS()
+        );
+    }
+
+    store.add(await client.addBinding(debugChannelRegisterBinding, data => {
+        const newChannels: IDebugChannel[] = [];
+        for (const channelId of data.channelIds) {
+            const onNotificationEmitter = new EventEmitter<{ notificationData: unknown }>();
+            const newChannel = new DebugChannel(client, channelId, onNotificationEmitter);
+            notificationHandlers.set(newChannel.channelInstanceId, onNotificationEmitter);
+            newChannels.push(newChannel);
+        }
+
+        const existing = availableDebugChannels.get();
+        availableDebugChannels.set([...existing, ...newChannels], undefined);
+    }));
+
+    await installRuntime();
+
+    store.add(client.subscribe('Runtime.executionContextsCleared', () => {
+        availableDebugChannels.set([], undefined);
+        installRuntime().catch(e => {
+            console.error('Error while installing runtime', e);
+        });
+    }));
+
+    return {
+        channels: availableDebugChannels,
+        dispose() {
+            store.dispose();
+        }
+    }
+}
+
+class DebugChannel implements IDebugChannel {
+    public static _instanceCounter = 0;
+    public readonly channelInstanceId = `${this.channelId}${DebugChannel._instanceCounter++}_${new Date().getTime()}`;
+
+    private readonly _evaluator = new CdpEvaluator(this._client);
+
+    constructor(
+        private readonly _client: CdpClient,
+        public readonly channelId: string,
+        private readonly _onNotificationEmitter: EventEmitter<{ notificationData: unknown }>
+    ) { }
+
+    toString() {
+        return `DebugChannel@${this.channelInstanceId}`;
+    }
+
+    public readonly onNotification = this._onNotificationEmitter.event;
+
+    async listenForNotifications() {
+        await this._evaluator.evaluate(
+            function connect(channelId: string, channelInstanceId: string, debugChannelSendNotificationBindingFn: typeof debugChannelSendNotificationBinding.TFunctionValue) {
+                const g = globalThis as any as GlobalObj;
+                const handler = g.$$debugValueEditor_debugChannels?.[channelId];
+                if (handler) {
+                    const h = handler({
+                        sendNotification(data) {
+                            debugChannelSendNotificationBindingFn({ channelInstanceId, notificationData: data })
+                        },
+                    });
+                    g.$$debugValueEditor_runtime!.debugChannelInstances.set(channelInstanceId, h);
+                } else {
+                    throw new Error('handler is missing');
+                }
+            },
+            this.channelId,
+            this.channelInstanceId,
+            debugChannelSendNotificationBinding.getFunctionValueS(),
+        );
+    }
+
+    async sendRequest(requestData: unknown) {
+        function sendRequest(channelInstanceId: string, data: unknown) {
+            const g = globalThis as any as GlobalObj;
+            const handler = g.$$debugValueEditor_runtime?.debugChannelInstances.get(channelInstanceId);
+            if (handler) {
+                return handler.handleRequest(data);
+            } else {
+                throw new Error(`channel instance ${channelInstanceId} is missing`);
+            }
+        }
+
+        const result = await this._evaluator.evaluate(sendRequest, this.channelInstanceId, requestData);
+        return result;
+    }
 }
 
 export type AvailablePropertyInfo = string | {
@@ -441,9 +639,11 @@ export type AvailablePropertyInfo = string | {
     expression?: string;
 };
 
+const debugChannelRegisterBinding = new Binding('$$debugValueEditor_registerDebugChannel', assumeType<{ channelIds: string[] }>());
+const debugChannelSendNotificationBinding = new Binding('$$debugValueEditor_debugChannelNotification', assumeType<{ channelInstanceId: string, notificationData: unknown }>());
+
 const updateAvailablePropertiesBinding = new Binding("$$debugValueEditor_updateAvailableProperties", assumeType<{ expressions: AvailablePropertyInfo[] }>());
 const refreshBinding = new Binding('$$debugValueEditor_refresh', assumeType<{}>());
-const runFunctionAvailableBinding = new Binding('$$debugValueEditor_runFunctionAvailable', assumeType<{}>());
 const promiseResolvedBinding = new Binding('$$debugValueEditor_promiseResolved', assumeType<{
     expression: string;
     result: EvaluationResult;
@@ -481,4 +681,23 @@ export class JsProperty extends Disposable implements IProperty {
     refresh(): void {
         this.debugSession.refresh(this);
     }
+}
+
+export interface IDebugValueEditorGlobals {
+    $$debugValueEditor_run: (args: any) => void;
+    $$debugValueEditor_properties: readonly any[];
+
+    $$debugValueEditor_debugChannels: Record</* name of the debug channel */ string, DebugChannelCtor>;
+
+    $$debugValueEditor_refresh?: (body: string) => void;
+}
+
+type DebugChannelCtor = (host: IHost) => IRequestHandler;
+
+interface IHost {
+    sendNotification: (data: unknown) => void;
+}
+
+interface IRequestHandler {
+    handleRequest: (data: unknown) => unknown;
 }

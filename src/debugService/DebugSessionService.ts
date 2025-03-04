@@ -26,20 +26,44 @@ export class DebugSessionService extends Disposable {
     constructor() {
         super();
 
-        this._register(debug.onDidStartDebugSession(debugSession => {
+        const log = false;
+
+        const initializeDebugSession = (debugSession: DebugSession) => {
+            if (this._debugSessions.has(debugSession)) {
+                return;
+            }
             const debugSessionProxy = new DebugSessionProxy(debugSession);
+
+            if (log) {
+                console.log(`DebugSessionService.create: ${debugSessionProxy}`);
+            }
+
             this._debugSessions.set(debugSession, debugSessionProxy);
-            debugSessionProxy.onDidTerminate(() => this._debugSessions.delete(debugSession));
+            debugSessionProxy.onDidTerminate(() => {
+                if (log) {
+                    console.log(`DebugSessionService.onDidTerminate: ${debugSessionProxy}`);
+                }
+
+                this._debugSessions.delete(debugSession);
+                this._debugSessionsChangedSignal.trigger(undefined);
+            });
 
             this._debugSessionsChangedSignal.trigger(undefined);
+        };
+
+        this._register(autorun(reader => {
+            const activeSession = this._activeSession.read(reader);
+            if (activeSession) {
+                initializeDebugSession(activeSession);
+            }
         }));
+
+        this._register(debug.onDidStartDebugSession(initializeDebugSession));
 
         this._register(debug.onDidTerminateDebugSession(debugSession => {
             const session = this._debugSessions.get(debugSession);
             if (session) {
                 session['_onDidTerminateEmitter'].fire();
-                this._debugSessions.delete(debugSession);
-                this._debugSessionsChangedSignal.trigger(undefined);
             }
         }));
 
@@ -81,6 +105,7 @@ export class DebugSessionService extends Disposable {
                     },
                     onDidSendMessage: async (msg) => {
                         const m = msg as DapMessage;
+
                         if (m.type === "event") {
                             if (m.event === "stopped") {
                                 const threadId = m.body.threadId;
@@ -108,6 +133,10 @@ export class DebugSessionProxy {
     private readonly _onDidTerminateEmitter = new EventEmitter<void>();
 
     constructor(public readonly session: DebugSession) {
+    }
+
+    public toString(): string {
+        return `DebugSessionProxy ${this.session.name}`;
     }
 
     public findSelfOrParent(predicate: (session: DebugSession) => boolean): DebugSession | undefined {
@@ -161,6 +190,34 @@ export class DebugSessionProxy {
         }
     }
 
+    public async getPreferredUILocation(args: { url?: string, source?: { path: string }, line: number, column: number }): Promise<PreferredUILocation> {
+        try {
+            const reply = (await this.session.customRequest("getPreferredUILocation", {
+                originalUrl: args.url,
+                source: args.source,
+                line: args.line,
+                column: args.column,
+            })) as PreferredUILocation;
+            return reply;
+        } catch (e) {
+            if (args.url) {
+                return {
+                    source: { name: args.url, path: args.url },
+                    line: args.line,
+                    column: args.column,
+                };
+            }
+
+            console.error(e);
+            throw e;
+        }
+    }
+}
+
+export interface PreferredUILocation {
+    source: { name: string; path: string };
+    line: number;
+    column: number;
 }
 
 export interface StackTraceInfo {
