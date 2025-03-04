@@ -10,7 +10,7 @@
 		"javascript"
 	],
 	"icon": "docs/logo.drawio.png",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"license": "MIT",
 	"publisher": "ms-vscode",
 	"enabledApiProposals": [],
@@ -25,13 +25,14 @@
 		"onFileSystem:debug-value",
 		"onLanguage:javascript",
 		"onLanguage:typescript",
-		"onCommand:debug-value-editor.debug-and-send-request"
+		"onCommand:debug-value-editor.debug-and-send-request",
+		"onStartupFinished"
 	],
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/microsoft/vscode-debug-value-editor"
 	},
-	"main": "./dist/extension.js",
+	"main": "./dist/entry.js",
 	"contributes": {
 		"commands": [
 			{
@@ -77,6 +78,8 @@
 		"typescript": "^5.5.0-dev.20240425"
 	},
 	"dependencies": {
+		"@hediet/node-reload": "^0.10.0",
+		"devtools-protocol": "^0.0.1419081",
 		"ws": "^8.17.1"
 	},
 	"files": [

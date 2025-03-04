@@ -1,9 +1,10 @@
 import { Event, commands } from "vscode";
 import { IDisposable } from "../utils/disposables";
-import { toDisposable } from "../utils/observables/observableInternal/lifecycle";
 import { WebSocket } from "ws";
 import { JsDebugSession } from "./JsDebugSupport";
 import { Validator } from "../utils/Validator";
+import { toDisposable } from "../utils/observables/observableInternal/commonFacade/deps";
+import { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 
 export class CdpClient implements IDisposable {
     public static async connectToSession(session: JsDebugSession): Promise<CdpClient | undefined> {
@@ -18,17 +19,17 @@ export class CdpClient implements IDisposable {
 
         const addr = `ws://${data.host}:${data.port}${data.path || ''}`;
 
-        return await CdpClient.connectToAddress(addr);
+        return await CdpClient.connectToAddress(addr, session);
     }
 
-    public static async connectToAddress(address: string): Promise<CdpClient> {
+    public static async connectToAddress(address: string, source: object | undefined = undefined): Promise<CdpClient> {
         const webSocket = new WebSocket(address);
         await new Promise<void>((resolve) => {
             webSocket.on('open', async () => {
                 resolve();
             });
         });
-        return new CdpClient(webSocket);
+        return new CdpClient(webSocket, source);
     }
 
     private _lastMessageId = 0;
@@ -38,7 +39,10 @@ export class CdpClient implements IDisposable {
     }> = new Map();
     private readonly _subscriptions: Map<string, SubscriptionCallback[]> = new Map();
 
-    constructor(private readonly _ws: WebSocket) {
+    constructor(
+        private readonly _ws: WebSocket,
+        private readonly _source: object | undefined,
+    ) {
         this._ws.on('message', (d) => {
             const message = d.toString();
             const json = JSON.parse(message);
@@ -64,6 +68,27 @@ export class CdpClient implements IDisposable {
                 }
             }
         });
+
+        const log = false;
+
+        if (log) {
+            this._ws.on('open', () => {
+                console.log(`CdpClient.onOpen: ${this}`);
+            });
+            this._ws.on('close', () => {
+                console.log(`CdpClient.onClose: ${this}`);
+            });
+            this._ws.on('error', (err) => {
+                console.error(`CdpClient.error: ${this}`, err);
+            });
+
+            console.log(`CdpClient.constructor: ${this}`);
+        }
+
+    }
+
+    toString() {
+        return `CdpClient(${this._source})`;
     }
 
     dispose(): void {
@@ -71,14 +96,14 @@ export class CdpClient implements IDisposable {
     }
 
     private readonly _onBindingCalled: Event<{ name: string; payload: string; }> = listener => {
-        return this._subscribe('Runtime', 'bindingCalled', (data) => {
-            listener({ name: data.name as string, payload: data.payload as string });
+        return this.subscribe('Runtime.bindingCalled', (data) => {
+            listener({ name: data.name, payload: data.payload });
         });
     };
 
-    public async addBinding(bindingName: string, onBindingCalled: (data: string) => void): Promise<void>;
-    public async addBinding<T>(binding: Binding<string, T>, onBindingCalled: (data: T) => void): Promise<void>;
-    public async addBinding(bindingName: string | Binding<string, any>, onBindingCalled: (data: string | any) => void): Promise<void> {
+    public async addBinding(bindingName: string, onBindingCalled: (data: string) => void): Promise<IDisposable>;
+    public async addBinding<T>(binding: Binding<string, T>, onBindingCalled: (data: T) => void): Promise<IDisposable>;
+    public async addBinding(bindingName: string | Binding<string, any>, onBindingCalled: (data: string | any) => void): Promise<IDisposable> {
         if (bindingName instanceof Binding) {
             const binding = bindingName;
             bindingName = binding.name;
@@ -98,24 +123,34 @@ export class CdpClient implements IDisposable {
             }
         }
 
-        await this._request('Runtime', 'addBinding', { name: bindingName });
-        this._onBindingCalled(e => {
+        await this.request('Runtime.addBinding', { name: bindingName });
+        const d = this._onBindingCalled(e => {
             if (e.name === bindingName) {
                 onBindingCalled(e.payload);
             }
         });
+        return {
+            dispose: () => {
+                d.dispose();
+                this.request('Runtime.removeBinding', { name: bindingName });
+            }
+        };
     }
 
-    private _subscribe(domain: string, event: string, callback: SubscriptionCallback): IDisposable {
-        const domainAndEvent = `${domain}.${event}`;
+    public subscribe<TMethod extends keyof ProtocolMapping.Events>(method: TMethod, callback: SubscriptionCallback<ProtocolMapping.Events[TMethod][0]>): IDisposable {
+        const domainAndEvent = method;
 
-        if (this._subscriptions.has(domainAndEvent)) {
-            this._subscriptions.get(domainAndEvent)?.push(callback);
-        } else {
-            this._subscriptions.set(domainAndEvent, [callback]);
+        let subscriptions = this._subscriptions.get(domainAndEvent);
+        if (!subscriptions) {
+            subscriptions = [];
+            this._subscriptions.set(domainAndEvent, subscriptions);
         }
-
-        this._request('JsDebug', 'subscribe', { events: [`${domain}.${event}`] });
+        subscriptions.push(callback);
+        if (subscriptions.length === 1) {
+            this.requestUntyped('JsDebug', 'subscribe', { events: [domainAndEvent] }).catch(e => {
+                console.error(`Failed to subscribe to ${domainAndEvent} events: ${e}`);
+            });
+        }
 
         return toDisposable(() => {
             const callbacks = this._subscriptions.get(domainAndEvent);
@@ -130,8 +165,13 @@ export class CdpClient implements IDisposable {
         });
     }
 
-    private async _request(domain: string, method: string, params?: Record<string, unknown>): Promise<unknown> {
+    public async requestUntyped(domain: string, method: string, params?: Record<string, unknown>): Promise<unknown> {
         return await this._send(`${domain}.${method}`, params);
+    }
+
+    public async request<TMethod extends keyof ProtocolMapping.Commands>(method: TMethod, ...params: ProtocolMapping.Commands[TMethod]['paramsType']): Promise<ProtocolMapping.Commands[TMethod]['returnType']> {
+        const result = await this._send(method, (params as any)[0]);
+        return result as any;
     }
 
     private async _send(method: string, params?: Record<string, unknown>): Promise<unknown> {
@@ -157,13 +197,17 @@ export class Binding<TName extends string, T> {
     ) { }
 
     public getFunctionValue(): string {
-        return `function (data) { globalThis.${this.name}(JSON.stringify(data)); }`;
+        return `function (data) { globalThis[${JSON.stringify(this.name)}](JSON.stringify(data)); }`;
+    }
+
+    public getFunctionValueS(): () => string {
+        return () => this.getFunctionValue();
     }
 
     public readonly TFunctionValue: (data: T) => void = undefined!;
 }
 
-type SubscriptionCallback = (data: Record<string, unknown>) => void;
+type SubscriptionCallback<T = any> = (data: T) => void;
 type MessageId = number;
 type ProtocolMessage = ICdpEvent | ICdpResponse;
 type ICdpResponse = ICdpErrorResponse | ICdpSuccessResponse;

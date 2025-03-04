@@ -2,13 +2,15 @@ import { TabInputCustom, TabInputNotebook, TabInputNotebookDiff, TabInputTermina
 import { SyncedTextDocument } from "./VirtualDocument";
 import { registerVirtualFs } from "./VirtualFileSystemController";
 import { DebugSessionProxy, DebugSessionService } from "./debugService/DebugSessionService";
-import { ActiveSessionPropertyFactory, IDebugSupport, IProperty, PropertyInformation } from "./debugService/debugService";
+import { IDebugSupport, IProperty, PropertyInformation } from "./debugService/IDebugSupport";
+import { ActiveSessionPropertyFactory } from "./debugService/ActiveSessionPropertyFactory";
 import { JsDebugSupport } from "./debugService/JsDebugSupport";
 import { Disposable, RefCounted } from "./utils/disposables";
-import { IObservable, derived, derivedObservableWithCache, observableFromEvent, waitForState } from "./utils/observables/observable";
+import { IObservable, derived, derivedObservableWithCache, observableFromEvent } from "./utils/observables/observable";
 import { mapObservableArrayCached } from "./utils/observables/observableInternal/utils";
 import { ErrorMessage, showDocument } from "./utils/utils";
-import { toDisposable } from "./utils/observables/observableInternal/lifecycle";
+import { waitForState } from "./utils/observables/observableInternal/utilsCancellation";
+import { toDisposable } from "./utils/observables/observableInternal/commonFacade/deps";
 
 export class DebugValueEditorService extends Disposable {
     public readonly debugSessionService = this._register(new DebugSessionService());
