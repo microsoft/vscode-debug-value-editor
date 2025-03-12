@@ -584,6 +584,8 @@ class DebugChannel implements IDebugChannel {
 
     private readonly _evaluator = new CdpEvaluator(this._client);
 
+    private _setup = false;
+
     constructor(
         private readonly _client: CdpClient,
         public readonly channelId: string,
@@ -597,6 +599,9 @@ class DebugChannel implements IDebugChannel {
     public readonly onNotification = this._onNotificationEmitter.event;
 
     async listenForNotifications() {
+        if (this._setup) {
+            return;
+        }
         await this._evaluator.evaluate(
             function connect(channelId: string, channelInstanceId: string, debugChannelSendNotificationBindingFn: typeof debugChannelSendNotificationBinding.TFunctionValue) {
                 const g = globalThis as any as GlobalObj;
@@ -616,9 +621,14 @@ class DebugChannel implements IDebugChannel {
             this.channelInstanceId,
             debugChannelSendNotificationBinding.getFunctionValueS(),
         );
+        this._setup = true;
     }
 
     async sendRequest(requestData: unknown) {
+        if (!this._setup) {
+            await this.listenForNotifications();
+        }
+
         function sendRequest(channelInstanceId: string, data: unknown) {
             const g = globalThis as any as GlobalObj;
             const handler = g.$$debugValueEditor_runtime?.debugChannelInstances.get(channelInstanceId);
