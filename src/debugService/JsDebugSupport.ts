@@ -60,7 +60,8 @@ export class JsDebugSupport extends Disposable implements IDebugSupport {
 
     getChannel(debugSession: DebugSessionProxy, channelId: string): IObservable<IDebugChannel | undefined> {
         const c = this.getAvailableChannels(debugSession);
-        return derived(reader => c.read(reader).find(c => c.channelId === channelId));
+        // Take the most recent channel
+        return derived(reader => c.read(reader).filter(c => c.channelId === channelId).at(-1));
     }
 
     override dispose(): void {

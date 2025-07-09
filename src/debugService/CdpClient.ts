@@ -8,12 +8,29 @@ import { ProtocolMapping } from "devtools-protocol/types/protocol-mapping";
 
 export class CdpClient implements IDisposable {
     public static async connectToSession(session: JsDebugSession): Promise<CdpClient | undefined> {
-        const data = await commands.executeCommand(
-            'extension.js-debug.requestCDPProxy',
-            session.debugSession.session.id
-        ) as { host: string; port: number; path: string; } | undefined;
+        let data: { host: string; port: number; path: string; } | undefined;
+
+        for (let attempt = 0; attempt < 5; attempt++) {
+            if (attempt > 0) {
+                await new Promise(resolve => setTimeout(resolve, attempt >= 2 ? 3000 : 2000));
+            }
+
+            try {
+                data = await commands.executeCommand(
+                    'extension.js-debug.requestCDPProxy',
+                    session.debugSession.session.id
+                ) as { host: string; port: number; path: string; } | undefined;
+            } catch (e) {
+                console.warn(`Failed to get CDP proxy: ${e}`);
+            }
+
+            if (data) {
+                break;
+            }
+        }
 
         if (!data) {
+            console.error('Failed to get CDP proxy, giving up');
             return undefined;
         }
 
