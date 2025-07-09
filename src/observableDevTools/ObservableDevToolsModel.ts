@@ -96,6 +96,14 @@ export class ObservableDevToolsModel extends Disposable {
         return this._rpc.api.requests.getValue(instanceId);
     }
 
+    public logValue(instanceId: ObsInstanceId): Promise<unknown> {
+        return this._rpc.api.requests.logValue(instanceId);
+    }
+
+    public rerun(instanceId: ObsInstanceId): Promise<unknown> {
+        return this._rpc.api.requests.rerun(instanceId);
+    }
+
     public getObsInstanceInfo(instanceId: ObsInstanceId, reader: IReader | undefined): ObsInstanceInfo | undefined {
         return this._observables.get(instanceId)?.info;
     }
@@ -103,6 +111,11 @@ export class ObservableDevToolsModel extends Disposable {
     public getDeclarationsInFile(path: string, reader: IReader | undefined): ObsDeclaration[] {
         this._declarationsChanged.read(reader);
         return [...this._declarations.values()].filter(d => d.resolvedLocation.read(reader)?.path.toLowerCase() === path.toLowerCase());
+    }
+
+    public getDeclaration(declId: ObsDeclarationId, reader: IReader | undefined): ObsDeclaration | undefined {
+        this._declarationsChanged.read(reader);
+        return this._declarations.get(declId);
     }
 
     public getInstancesByDeclaration(declaration: ObsDeclaration, reader: IReader | undefined): ObsInstanceInfo[] {
@@ -235,8 +248,8 @@ export class ObsAutorunInfo extends ObsInstanceInfoBase<IAutorunInstancePushStat
 class SourceLocation {
     constructor(
         public readonly path: string,
-        public readonly line: number,
-        public readonly column: number,
+        public readonly line: number, // 1-based
+        public readonly column: number, // 1-based
     ) { }
 
     toString(): string {

@@ -20,4 +20,8 @@ export class CommandDef<T> {
     register(run: (args: T) => Promise<unknown> | unknown): IDisposable {
         return commands.registerCommand(this.id, run);
     }
+
+    toMarkdownCommand(title: string, args: T): string {
+        return `[${title}](command:${this.id}?${encodeURIComponent(JSON.stringify(args))})`;
+    }
 }

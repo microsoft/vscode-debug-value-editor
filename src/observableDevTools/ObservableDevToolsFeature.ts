@@ -1,4 +1,4 @@
-import { commands, DecorationOptions, languages, MarkdownString, Position, Range, ThemeColor, window } from "vscode";
+import { DecorationOptions, languages, MarkdownString, Position, Range, TextEditorRevealType, ThemeColor, Uri, window } from "vscode";
 import { DebugSessionService } from "../debugService/DebugSessionService";
 import { IDebugSupport } from "../debugService/IDebugSupport";
 import { Disposable } from "../utils/disposables";
@@ -8,6 +8,8 @@ import { createRpcChannelFromDebugChannel } from "./createConnectorFromDebugClie
 import { isDefined } from "../utils/utils";
 import { ObservableDevToolsModel } from "./ObservableDevToolsModel";
 import { IObsInstanceRef, ObsInstanceId } from "./debuggerApi";
+import { CommandDef } from "../Command";
+import { assumeType } from "../utils/Validator";
 
 export class ObservableDevToolsFeature extends Disposable {
     private readonly _openEditors = observableFromEvent(window.onDidChangeVisibleTextEditors, () => [...window.visibleTextEditors]);
@@ -18,6 +20,11 @@ export class ObservableDevToolsFeature extends Disposable {
 
     ) {
         super();
+
+        const setValueCommand = new CommandDef('observableDevTools.setValue', assumeType<{ instanceId: ObsInstanceId }>());
+        const recomputeCommand = new CommandDef('observableDevTools.recompute', assumeType<{ instanceId: ObsInstanceId }>());
+        const logValueCommand = new CommandDef('observableDevTools.log', assumeType<{ instanceId: ObsInstanceId }>());
+        const goToLocationCommand = new CommandDef('observableDevTools.goToLocation', assumeType<{ instanceId: ObsInstanceId }>());
 
         const states = mapObservableArrayCached(this, this._debugSessionService.debugSessions, (session, store) => {
             const observableDevToolsChannel = this._debugSupport.getChannel(session, 'observableDevTools');
@@ -35,11 +42,11 @@ export class ObservableDevToolsFeature extends Disposable {
 
         const firstState = states.map((states, reader) => states.find(s => s.read(reader)) ?? constObservable(undefined)).flatten();
 
-        this._register(commands.registerCommand('observableDevTools.setValue', async (instanceId: ObsInstanceId) => {
+        this._register(setValueCommand.register(async (args) => {
             const s = firstState.get();
             if (!s) { return undefined; }
 
-            const val = await s.getValue(instanceId);
+            const val = await s.getValue(args.instanceId);
 
             const result = await window.showInputBox({
                 prompt: 'Enter JSON value',
@@ -47,7 +54,47 @@ export class ObservableDevToolsFeature extends Disposable {
             });
             if (result === undefined) { return; }
 
-            await s.setValue(instanceId, JSON.parse(result));
+            await s.setValue(args.instanceId, JSON.parse(result));
+        }));
+
+        this._register(logValueCommand.register(async (args) => {
+            const s = firstState.get();
+            if (!s) { return undefined; }
+            await s.logValue(args.instanceId);
+        }));
+
+        this._register(recomputeCommand.register(async (args) => {
+            const s = firstState.get();
+            if (!s) { return undefined; }
+            await s.rerun(args.instanceId);
+        }));
+
+        const d = this._register(window.createTextEditorDecorationType({
+            isWholeLine: true,
+            backgroundColor: new ThemeColor("editor.inlineValuesBackground"),
+        }));
+
+        this._register(goToLocationCommand.register(async (args) => {
+            const s = firstState.get();
+            if (!s) { return undefined; }
+            const info = s.getObsInstanceInfo(args.instanceId, undefined);
+            if (!info) { return undefined; }
+            const decl = s.getDeclaration(info.declarationId, undefined);
+            const loc = decl?.resolvedLocation.get();
+            if (!loc) { return undefined; }
+            const e = await window.showTextDocument(Uri.file(loc.path));
+            e.revealRange(new Range(loc.line - 1, loc.column - 1, loc.line - 1, loc.column - 1), TextEditorRevealType.InCenterIfOutsideViewport);
+
+            const decoration: DecorationOptions = {
+                range: new Range(new Position(loc.line - 1, 0), new Position(loc.line - 1, Number.MAX_SAFE_INTEGER)),
+                renderOptions: {
+                    dark: {
+
+                    }
+                }
+            };
+            e.setDecorations(d, [decoration]);
+            setTimeout(() => e.setDecorations(d, []), 600);
         }));
 
         this._register(languages.registerHoverProvider({ language: 'typescript' }, {
@@ -63,16 +110,25 @@ export class ObservableDevToolsFeature extends Disposable {
                     function formatInlineCode(value: string): string {
                         return "`" + value + "`";
                     }
+                    function addLinkToDecl(ref: IObsInstanceRef, content: string): string {
+                        return goToLocationCommand.toMarkdownCommand(content, { instanceId: ref.instanceId });
+                    }
 
                     function formatRefs(refs: IObsInstanceRef[]): string {
-                        return refs.map(r => ` * ${formatInlineCode(r.name)}`).join('\n');
+                        return refs.map(r => ` * ${addLinkToDecl(r, formatInlineCode(r.name))}`).join('\n');
                     }
 
                     const contents = await Promise.all(instances.map(async i => {
                         if (i.type === 'autorun') {
                             const info = await s.getAutorunInfo(i.instanceId);
                             const deps = `#### Dependencies\n${formatRefs(info.dependencies)}`;
-                            return new MarkdownString(`### Autorun ${formatInlineCode(i.name)}\n\n${deps}`);
+                            return new MarkdownString(`
+### Autorun ${formatInlineCode(i.name)}
+
+[${recomputeCommand.toMarkdownCommand('Rerun', { instanceId: i.instanceId })}]
+
+${deps}
+`);
                         } else if (i.type === 'derived') {
                             const info = await s.getDerivedInfo(i.instanceId);
                             const val = await s.getValue(i.instanceId);
@@ -81,7 +137,11 @@ export class ObservableDevToolsFeature extends Disposable {
                             const m = new MarkdownString(`
 ### Derived ${formatInlineCode(i.name)}
 Value: \`${val}\`
-[Set Value](command:observableDevTools.setValue?${encodeURIComponent(JSON.stringify([i.instanceId]))})
+
+[${setValueCommand.toMarkdownCommand('Set Value', { instanceId: i.instanceId })}]
+[${logValueCommand.toMarkdownCommand('Log Value', { instanceId: i.instanceId })}]
+[${recomputeCommand.toMarkdownCommand('Recompute', { instanceId: i.instanceId })}]
+
 ${deps}
 
 ${obs}
@@ -99,7 +159,10 @@ ${formatRefs(info.observers)}` : '';
                             const m = new MarkdownString(`
 ### ObservableValue ${formatInlineCode(i.name)}
 Value: \`${val}\`
-[Set Value](command:observableDevTools.setValue?${encodeURIComponent(JSON.stringify([i.instanceId]))})
+
+[${setValueCommand.toMarkdownCommand('Set Value', { instanceId: i.instanceId })}]
+[${logValueCommand.toMarkdownCommand('Log Value', { instanceId: i.instanceId })}]
+
 ${observersSection}
 ---`);
                             m.isTrusted = true;
