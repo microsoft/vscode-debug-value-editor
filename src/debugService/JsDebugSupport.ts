@@ -499,7 +499,7 @@ async function createCommandInvokeFeature(client: CdpClient): Promise<IDisposabl
         }
 
         try {
-            const _result = await commands.executeCommand(data.commandId, ...data.args);
+            await commands.executeCommand(data.commandId, ...data.args);
         } catch (err: any) {
             console.error(`Error while executing command "${data.commandId}" with args`, data.args, err);
             ErrorMessage.showIfError(new ErrorMessage(`Error while executing command "${data.commandId}": ${err.message}`));
