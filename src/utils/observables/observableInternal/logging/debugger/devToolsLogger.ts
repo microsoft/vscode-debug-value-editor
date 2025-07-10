@@ -100,6 +100,12 @@ export class DevToolsLogger implements IObservableLogger {
 				},
 				setValue: () => {
 					// TODO implement
+				},
+				logValue: () => {
+					// TODO implement
+				},
+				rerun: () => {
+					// TODO implement
 				}
 			}
 		};
