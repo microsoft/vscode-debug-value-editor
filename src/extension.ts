@@ -19,6 +19,10 @@ export class Extension extends Disposable {
     constructor(context: ExtensionContext) {
         super();
 
+        this._register(startDebuggingCommand.register(async args => {
+            return await debug.startDebugging(undefined, args.launchConfig, undefined);
+        }));
+
         const visibleProperty = observableValue<IObservable<boolean>>(this, constObservable(false));
 
         const treeView = this._register(window.createTreeView('available-properties', {
@@ -122,6 +126,10 @@ export class Extension extends Disposable {
         }));
     }
 }
+
+export const startDebuggingCommand = new CommandDef('debug-value-editor.startDebugging', assumeType<{
+    launchConfig: any;
+}>());
 
 export const editPropertyCommand = new CommandDef('debug-value-editor.edit-property', assumeType<{
     expressions: (string | { expression: string, label?: string })[];

@@ -5,7 +5,7 @@ import { Binding, CdpClient } from "./CdpClient";
 import { assumeType } from "../utils/Validator";
 import { DebugSessionProxy } from "./DebugSessionService";
 import { IProperty, IDebugSupport, PropertyInformation, IDebugChannel } from "./IDebugSupport";
-import { EventEmitter } from "vscode";
+import { commands, EventEmitter, window } from "vscode";
 import { toDisposable } from "../utils/observables/observableInternal/commonFacade/deps";
 
 export class JsDebugSupport extends Disposable implements IDebugSupport {
@@ -178,7 +178,8 @@ export class JsDebugSession extends Disposable {
             })
         ]);
 
-        const result = await createDebugChannelFeature(client, this.debugSession);
+        this._register(await createCommandInvokeFeature(client));
+        const result = await createDebugChannelFeature(client);
         this._register(result);
         this._availableDebugChannels.set(result.channels, undefined);
 
@@ -487,14 +488,57 @@ class CdpEvaluator {
     }
 }*/
 
+
+async function createCommandInvokeFeature(client: CdpClient): Promise<IDisposable> {
+    const store = new DisposableStore();
+
+    store.add(await client.addBinding(debugValueEditor_runCommandNotification, async data => {
+        const option = await window.showInformationMessage(`Run command "${data.commandId}" with args: ${JSON.stringify(data.args)}`, 'Run', 'Cancel');
+        if (option !== 'Run') {
+            return;
+        }
+
+        try {
+            const _result = await commands.executeCommand(data.commandId, ...data.args);
+        } catch (err: any) {
+            console.error(`Error while executing command "${data.commandId}" with args`, data.args, err);
+            ErrorMessage.showIfError(new ErrorMessage(`Error while executing command "${data.commandId}": ${err.message}`));
+        }
+    }));
+
+    const evaluator = new CdpEvaluator(client);
+    evaluator.evaluate(
+        function (runCommandNotification: typeof debugValueEditor_runCommandNotification.TFunctionValue) {
+            const g = globalThis as any as GlobalObj;
+            g.$$debugValueEditor_runVsCodeCommand = (commandId: string, ...args: unknown[]) => {
+                runCommandNotification({ commandId, args });
+            };
+
+            const vals = g.$$debugValueEditor_onConnected as Set<() => void> | undefined;
+            g.$$debugValueEditor_onConnected = {
+                add: (item: () => void) => { item(); },
+                delete: (item: () => void) => { },
+            };
+            for (const item of vals ?? []) {
+                item();
+            }
+        },
+        debugValueEditor_runCommandNotification.getFunctionValueS()
+    );
+
+    return store;
+}
+
+const debugValueEditor_runCommandNotification = new Binding('$$debugValueEditor_$runCommandNotification', assumeType<{ commandId: string; args: unknown[] }>());
+
 type GlobalObj = {
     $$debugValueEditor_runtime: {
         debugChannelInstances: Map<string, { handleRequest: (data: unknown) => unknown }>;
-        debugChannelsCtors: IDebugValueEditorGlobals['$$debugValueEditor_debugChannels']
+        debugChannelsCtors: NonNullable<IDebugValueEditorGlobals['$$debugValueEditor_debugChannels']>
     } | undefined;
 } & IDebugValueEditorGlobals;
 
-async function createDebugChannelFeature(client: CdpClient, debugSession: DebugSessionProxy): Promise<{ channels: IObservable<readonly IDebugChannel[]> } & IDisposable> {
+async function createDebugChannelFeature(client: CdpClient): Promise<{ channels: IObservable<readonly IDebugChannel[]> } & IDisposable> {
     const availableDebugChannels = observableValue<readonly IDebugChannel[]>('availableDebugChannels', []);
 
     const notificationHandlers = new Map</* channelInstanceId */ string, EventEmitter<{ notificationData: unknown }>>();
@@ -695,12 +739,20 @@ export class JsProperty extends Disposable implements IProperty {
 }
 
 export interface IDebugValueEditorGlobals {
+    $$debugValueEditor_onConnected?: ISimpleSet<() => void>;
+    $$debugValueEditor_runVsCodeCommand?: (commandId: string, ...args: unknown[]) => void;
+    $$debugValueEditor_debugChannels?: Record</* name of the debug channel */ string, DebugChannelCtor>;
+
+
+    // old:
     $$debugValueEditor_run: (args: any) => void;
     $$debugValueEditor_properties: readonly any[];
-
-    $$debugValueEditor_debugChannels: Record</* name of the debug channel */ string, DebugChannelCtor>;
-
     $$debugValueEditor_refresh?: (body: string) => void;
+}
+
+interface ISimpleSet<T> {
+    add(value: T): void;
+    delete(value: T): void;
 }
 
 type DebugChannelCtor = (host: IHost) => IRequestHandler;
