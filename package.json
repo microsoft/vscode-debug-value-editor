@@ -16,7 +16,7 @@
 	"enabledApiProposals": [],
 	"readme": "./README.md",
 	"engines": {
-		"vscode": "^1.85.0"
+		"vscode": "^1.101.0"
 	},
 	"categories": [
 		"Debuggers"
@@ -47,7 +47,8 @@
 					"id": "available-properties",
 					"name": "Available Properties",
 					"type": "tree",
-					"when": "debug-value-editor.has-available-properties"
+					"when": "debug-value-editor.has-available-properties",
+					"icon": "$(symbol-property)"
 				}
 			]
 		},
@@ -59,7 +60,44 @@
 					"icon": "$(debug)"
 				}
 			]
-		}
+		},
+		"languageModelTools": [
+			{
+				"name": "listDebugSessions",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "listDebugSessions",
+				"displayName": "List Debug Sessions",
+				"modelDescription": "List all active debug sessions with their IDs, names, and expression language IDs",
+				"inputSchema": {
+					"type": "object",
+					"properties": {}
+				}
+			},
+			{
+				"name": "evaluateExpressionInDebugSession",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "evaluateExpressionInDebugSession",
+				"displayName": "Evaluate Expression in Debug Session",
+				"modelDescription": "Evaluate an expression in a specific debug session",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "number",
+							"description": "The ID of the debug session to evaluate the expression in"
+						},
+						"expression": {
+							"type": "string",
+							"description": "The expression to evaluate in the debug session"
+						}
+					},
+					"required": [
+						"debugSessionId",
+						"expression"
+					]
+				}
+			}
+		]
 	},
 	"scripts": {
 		"build": "yarn run build-ts && yarn run build-vsix",
@@ -71,7 +109,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "^13.13.5",
-		"@types/vscode": "^1.85.0",
+		"@types/vscode": "^1.101.0",
 		"@types/ws": "^8.5.10",
 		"@vscode/dts": "^0.4.0",
 		"@vscode/vsce": "^2.26.0",
