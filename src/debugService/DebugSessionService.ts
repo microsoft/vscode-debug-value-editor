@@ -127,12 +127,17 @@ export class DebugSessionService extends Disposable {
 }
 
 export class DebugSessionProxy {
+    private static _nextNumericId = 1;
+
     private readonly _pausedStackFrameId = observableValue<number | undefined>(this, undefined);
     public readonly pausedStackFrameId: IObservable<number | undefined> = this._pausedStackFrameId;
 
     private readonly _onDidTerminateEmitter = new EventEmitter<void>();
 
-    constructor(public readonly session: DebugSession) {
+    constructor(
+        public readonly session: DebugSession,
+        public readonly numericId: number = DebugSessionProxy._nextNumericId++,
+    ) {
     }
 
     public toString(): string {

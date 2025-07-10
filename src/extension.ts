@@ -3,6 +3,7 @@ import { OpenPropertyCodeLensFeature } from "./CodeLensFeature";
 import { CommandDef } from "./Command";
 import { PropertyInformation } from "./debugService/IDebugSupport";
 import { DebugValueEditorService, SessionInformation } from "./DebugValueEditService";
+import { LanguageModelTools } from "./LanguageModelTools";
 import { ObservableDevToolsFeature } from "./observableDevTools/ObservableDevToolsFeature";
 import { Disposable, DisposableStore } from "./utils/disposables";
 import { IObservable, autorun, constObservable, derived, derivedObservableWithCache, observableFromEvent, observableValue } from "./utils/observables/observable";
@@ -18,6 +19,10 @@ export class Extension extends Disposable {
     constructor(context: ExtensionContext) {
         super();
 
+        this._register(startDebuggingCommand.register(async args => {
+            return await debug.startDebugging(undefined, args.launchConfig, undefined);
+        }));
+
         const visibleProperty = observableValue<IObservable<boolean>>(this, constObservable(false));
 
         const treeView = this._register(window.createTreeView('available-properties', {
@@ -30,6 +35,7 @@ export class Extension extends Disposable {
         visibleProperty.set(observableFromEvent(treeView.onDidChangeVisibility, () => treeView.visible), undefined);
 
         this._register(new OpenPropertyCodeLensFeature());
+        this._register(new LanguageModelTools(this._debugValueEditService.debugSessionService));
         this._register(hotReloadExportedItem(ObservableDevToolsFeature, ObservableDevToolsFeature => new ObservableDevToolsFeature(this._debugValueEditService.debugSessionService, this._debugValueEditService.debugSupport)));
         this._register(editPropertyCommand.register(async (args) => {
             const expressions = args.expressions;
@@ -120,6 +126,10 @@ export class Extension extends Disposable {
         }));
     }
 }
+
+export const startDebuggingCommand = new CommandDef('debug-value-editor.startDebugging', assumeType<{
+    launchConfig: any;
+}>());
 
 export const editPropertyCommand = new CommandDef('debug-value-editor.edit-property', assumeType<{
     expressions: (string | { expression: string, label?: string })[];
