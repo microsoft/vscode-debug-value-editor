@@ -122,13 +122,14 @@ export class ObservableDevToolsFeature extends Disposable {
                         if (i.type === 'autorun') {
                             const info = await s.getAutorunInfo(i.instanceId);
                             const deps = `#### Dependencies\n${formatRefs(info.dependencies)}`;
-                            return new MarkdownString(`
+                            const m = new MarkdownString(`
 ### Autorun ${formatInlineCode(i.name)}
 
 [${recomputeCommand.toMarkdownCommand('Rerun', { instanceId: i.instanceId })}]
 
 ${deps}
 `);
+                            m.isTrusted = true;
                         } else if (i.type === 'derived') {
                             const info = await s.getDerivedInfo(i.instanceId);
                             const val = await s.getValue(i.instanceId);
