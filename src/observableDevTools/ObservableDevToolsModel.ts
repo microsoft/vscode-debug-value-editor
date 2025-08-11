@@ -1,5 +1,5 @@
 import type { ObsDeclarationId, ObsInstanceId, ObsInstancePushState, ObsDebuggerApi, DeepPartial, IObservableValueInstancePushState, IDerivedObservableInstancePushState, IAutorunInstancePushState, IDerivedObservableDetailedInfo, IAutorunDetailedInfo, ITransactionState, ObserverInstanceState, DerivedObservableState, AutorunState, IObservableInstancePushState, IObservableValueInfo } from "./debuggerApi";
-import { DebugSessionProxy } from "../debugService/DebugSessionService";
+import { DebugSessionProxy, IPreferredUILocation, IUnresolvedLocation } from "../debugService/DebugSessionService";
 import { Disposable } from "../utils/disposables";
 import { observableSignal, IReader, observableValue, transaction, ITransaction, IObservable, ISettableObservable, autorun, derived } from "../utils/observables/observableInternal";
 import { BugIndicatingError } from "../utils/observables/observableInternal/commonFacade/deps";
@@ -26,10 +26,10 @@ export class ObservableDevToolsModel extends Disposable {
 
                     if (update.decls) {
                         for (const d of Object.values(update.decls)) {
-                            const decl = new ObsDeclaration(d.id);
+                            const decl = new ObsDeclaration(d.id, { url: d.url, line: d.line - 1, column: d.column - 1 });
                             this._declarations.set(d.id, decl);
-                            this._session.getPreferredUILocation({ url: d.url, line: d.line - 1, column: d.column - 1 }).then(result => {
-                                decl.resolvedLocation.set(new SourceLocation(result.source.path, result.line + 1, result.column + 1), undefined);
+                            this._session.getPreferredUILocation(decl.unresolvedLocation).then(result => {
+                                decl.resolvedLocation.set(SourceLocation.fromPreferredUILocation(result), undefined);
                             });
                         }
                         this._declarationsChanged.trigger(tx);
@@ -86,6 +86,14 @@ export class ObservableDevToolsModel extends Disposable {
                 this._transactionState.set(undefined, undefined);
             }
         }));
+    }
+
+    public reloadResolvedLocations(): void {
+        for (const decl of this._declarations.values()) {
+            this._session.getPreferredUILocation(decl.unresolvedLocation).then(result => {
+                decl.resolvedLocation.set(SourceLocation.fromPreferredUILocation(result), undefined);
+            });
+        }
     }
 
     public getState(instanceId: ObsInstanceId, reader: IReader | undefined): ObserverInstanceState | undefined {
@@ -145,6 +153,7 @@ export class ObsDeclaration {
 
     constructor(
         public readonly declarationId: ObsDeclarationId,
+        public readonly unresolvedLocation: IUnresolvedLocation,
     ) { }
 }
 
@@ -246,6 +255,10 @@ export class ObsAutorunInfo extends ObsInstanceInfoBase<IAutorunInstancePushStat
 }
 
 class SourceLocation {
+    public static fromPreferredUILocation(location: IPreferredUILocation): SourceLocation {
+        return new SourceLocation(location.source.path, location.line + 1, location.column + 1);
+    }
+
     constructor(
         public readonly path: string,
         public readonly line: number, // 1-based
