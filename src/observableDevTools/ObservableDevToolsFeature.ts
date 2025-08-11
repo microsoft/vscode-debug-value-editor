@@ -69,6 +69,13 @@ export class ObservableDevToolsFeature extends Disposable {
             await s.rerun(args.instanceId);
         }));
 
+        const reloadResolvedLocationsCommand = new CommandDef('observableDevTools.reloadResolvedLocations', assumeType<{}>());
+        this._register(reloadResolvedLocationsCommand.register(() => {
+            for (const s of states.get()) {
+                s.get()?.reloadResolvedLocations();
+            }
+        }));
+
         const d = this._register(window.createTextEditorDecorationType({
             isWholeLine: true,
             backgroundColor: new ThemeColor("editor.inlineValuesBackground"),

@@ -195,14 +195,14 @@ export class DebugSessionProxy {
         }
     }
 
-    public async getPreferredUILocation(args: { url?: string, source?: { path: string }, line: number, column: number }): Promise<PreferredUILocation> {
+    public async getPreferredUILocation(args: IUnresolvedLocation): Promise<IPreferredUILocation> {
         try {
             const reply = (await this.session.customRequest("getPreferredUILocation", {
                 originalUrl: args.url,
                 source: args.source,
                 line: args.line,
                 column: args.column,
-            })) as PreferredUILocation;
+            })) as IPreferredUILocation;
             return reply;
         } catch (e) {
             if (args.url) {
@@ -219,7 +219,14 @@ export class DebugSessionProxy {
     }
 }
 
-export interface PreferredUILocation {
+export interface IUnresolvedLocation {
+    url?: string;
+    source?: { path: string };
+    line: number;
+    column: number;
+}
+
+export interface IPreferredUILocation {
     source: { name: string; path: string };
     line: number;
     column: number;

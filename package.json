@@ -39,6 +39,11 @@
 				"command": "debug-value-editor.edit-property",
 				"title": "Edit Property",
 				"category": "Debug Value Editor"
+			},
+			{
+				"command": "observableDevTools.reloadResolvedLocations",
+				"title": "Reload Resolved Locations",
+				"category": "Observable Dev Tools"
 			}
 		],
 		"views": {
