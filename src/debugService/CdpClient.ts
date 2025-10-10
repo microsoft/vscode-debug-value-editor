@@ -214,7 +214,7 @@ export class Binding<TName extends string, T> {
     ) { }
 
     public getFunctionValue(): string {
-        return `function (data) { globalThis[${JSON.stringify(this.name)}](JSON.stringify(data)); }`;
+        return `function (data) { globalThis[${JSON.stringify(this.name)}](JSON.stringify(data)); }`; // CodeQL [SM03611] this will be evaluated inside the debugee.
     }
 
     public getFunctionValueS(): () => string {

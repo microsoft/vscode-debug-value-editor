@@ -301,7 +301,8 @@ export class JsDebugSession extends Disposable {
             
             ${transformValue.toString()}
             ${referencesToWrite.map(w => `
-            ${w.ref.expression} = transformValue(${JSON.stringify(w.newValue)}, ${JSON.stringify(w.ref.expression)}, () => ${w.ref.expression}, ${JSON.stringify(w.ref.valueType)});
+            ${w.ref.expression} = transformValue(${JSON.stringify(w.newValue)}, ${JSON.stringify(w.ref.expression)}, () => ${w.ref.expression}, ${JSON.stringify(w.ref.valueType)}); // CodeQL [SM03611] JSON.stringify is sound here.
+
         `).join('\n')}
 
             const values = [${referencesToRead.map(r => {
