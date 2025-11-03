@@ -4,6 +4,13 @@ trigger:
             - main
 pr: none
 
+# schedules:
+#     - cron: "0 9 * * Mon-Thu"
+#       displayName: Nightly Release Schedule
+#       branches:
+#           include:
+#               - main
+
 resources:
     repositories:
         - repository: templates
@@ -16,21 +23,26 @@ parameters:
     - name: publishExtension
       displayName: 🚀 Publish Extension
       type: boolean
-      default: false
+      default: true
 
 extends:
-    template: azure-pipelines/extension/stable.yml@templates
+    template: azure-pipelines/extension/pre-release.yml@templates
     parameters:
         publishExtension: ${{ parameters.publishExtension }}
+        ghCreateTag: true
+
         buildSteps:
             - script: npm ci
               displayName: Install dependencies
+
+            - script: npm run patch-prerelease $(Build.BuildNumber)
+              displayName: Apply prerelease patch
 
             - script: npm run build
               displayName: Build
 
         tsa:
             config:
-                areaPath: "Visual Studio Code Debugging Extensions"
-                serviceTreeID: "053e3ba6-924d-456c-ace0-67812c5ccc52"
+                areaPath: "Visual Studio Code Miscellaneous Extensions"
+                serviceTreeID: "c8cb03c6-176e-40dd-90a5-518de08666dc"
             enabled: true
