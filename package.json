@@ -16,7 +16,7 @@
 	"enabledApiProposals": [],
 	"readme": "./README.md",
 	"engines": {
-		"vscode": "^1.101.0"
+		"vscode": "^1.108.0"
 	},
 	"categories": [
 		"Debuggers"
@@ -72,10 +72,142 @@
 				"canBeReferencedInPrompt": true,
 				"toolReferenceName": "listDebugSessions",
 				"displayName": "List Debug Sessions",
-				"modelDescription": "List all active debug sessions with their IDs, names, and expression language IDs",
+				"modelDescription": "List all active debug sessions in a hierarchy. Returns IDs (format: id:N-time:DDThh:mm:ss), names, expression language IDs, and active status. Note: Many more debugging tools (evaluate, step, inspect variables, etc.) become available once you start a debug session using launchNodeRepl, launchDenoRepl, launchNodeProgram, or startDebugSession.",
 				"inputSchema": {
 					"type": "object",
 					"properties": {}
+				}
+			},
+			{
+				"name": "startDebugSession",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "startDebugSession",
+				"displayName": "Start Debug Session",
+				"modelDescription": "Start a new debug session with an arbitrary debug configuration. Supports any debug type (pwa-node, pwa-chrome, python, etc.) with full configuration options. Returns the debug session ID. Once started, additional tools for evaluation, stepping, inspection, and more become available.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"configuration": {
+							"type": "object",
+							"description": "The VS Code debug configuration object. Must include 'type' (e.g., 'pwa-node', 'pwa-chrome', 'python') and 'request' ('launch' or 'attach'). Other properties depend on the debug type. Common properties: 'name' (session name), 'program' (file to debug), 'cwd' (working directory), 'args' (command-line arguments), 'url' (for browser debugging), 'port' (for attach).",
+							"properties": {
+								"type": {
+									"type": "string",
+									"description": "The debug adapter type (e.g., 'pwa-node', 'pwa-chrome', 'node', 'chrome', 'python', 'cppdbg')"
+								},
+								"request": {
+									"type": "string",
+									"enum": [
+										"launch",
+										"attach"
+									],
+									"description": "Whether to launch a new process or attach to an existing one"
+								},
+								"name": {
+									"type": "string",
+									"description": "A name for the debug session (optional, will be auto-generated if not provided)"
+								}
+							},
+							"required": [
+								"type",
+								"request"
+							],
+							"additionalProperties": true
+						}
+					},
+					"required": [
+						"configuration"
+					]
+				}
+			},
+			{
+				"name": "launchNodeProgram",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "launchNodeProgram",
+				"displayName": "Launch Node.js Program",
+				"modelDescription": "Launch a new Node.js debug session for a JavaScript/TypeScript file. Returns the debug session ID. Once started, additional tools for evaluation, stepping, inspection, and more become available.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"program": {
+							"type": "string",
+							"description": "The absolute path to the JavaScript or TypeScript file to debug"
+						},
+						"args": {
+							"type": "array",
+							"items": {
+								"type": "string"
+							},
+							"description": "Optional command-line arguments to pass to the program"
+						},
+						"stopOnEntry": {
+							"type": "boolean",
+							"description": "Whether to stop execution at the first line of the program (default: false)"
+						},
+						"cwd": {
+							"type": "string",
+							"description": "The working directory for the program"
+						}
+					},
+					"required": [
+						"program"
+					]
+				}
+			},
+			{
+				"name": "launchNodeRepl",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "launchNodeRepl",
+				"displayName": "Launch Node.js REPL",
+				"modelDescription": "PREFERRED: Launch an interactive Node.js REPL in debug mode. Use this instead of running scripts via terminal when you need to quickly evaluate JavaScript/TypeScript code - no temporary files needed! Just launch the REPL and use evaluateExpressionInDebugSession to run code. Perfect for quick calculations, testing code snippets, exploring APIs, or prototyping. The session persists state between evaluations. Returns the debug session ID. Once started, evaluation and many other debugging tools become available.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"cwd": {
+							"type": "string",
+							"description": "The working directory for the REPL"
+						}
+					}
+				}
+			},
+			{
+				"name": "stopDebugSession",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "stopDebugSession",
+				"displayName": "Stop Debug Session",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Stop a running debug session.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session to stop (format: id:N-time:DDThh:mm:ss)"
+						}
+					},
+					"required": [
+						"debugSessionId"
+					]
+				}
+			},
+			{
+				"name": "restartDebugSession",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "restartDebugSession",
+				"displayName": "Restart Debug Session",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Restart a debug session with the same configuration. Returns the new debug session ID.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session to restart (format: id:N-time:DDThh:mm:ss)"
+						}
+					},
+					"required": [
+						"debugSessionId"
+					]
 				}
 			},
 			{
@@ -83,17 +215,22 @@
 				"canBeReferencedInPrompt": true,
 				"toolReferenceName": "evaluateExpressionInDebugSession",
 				"displayName": "Evaluate Expression in Debug Session",
-				"modelDescription": "Evaluate an expression in a specific debug session",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Evaluate an expression in a specific debug session. If evaluation takes longer than timeoutMs, returns a requestId that can be used with getEvaluationResult to check the result later.",
 				"inputSchema": {
 					"type": "object",
 					"properties": {
 						"debugSessionId": {
-							"type": "number",
-							"description": "The ID of the debug session to evaluate the expression in"
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss)"
 						},
 						"expression": {
 							"type": "string",
 							"description": "The expression to evaluate in the debug session"
+						},
+						"timeoutMs": {
+							"type": "number",
+							"description": "Timeout in milliseconds (default: 1000). If evaluation takes longer, returns a requestId for later retrieval."
 						}
 					},
 					"required": [
@@ -101,20 +238,380 @@
 						"expression"
 					]
 				}
+			},
+			{
+				"name": "getEvaluationResult",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "getEvaluationResult",
+				"displayName": "Get Evaluation Result",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Get the result of a pending evaluation by its requestId. Use this after evaluateExpressionInDebugSession times out.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"requestId": {
+							"type": "string",
+							"description": "The requestId returned from a timed-out evaluation"
+						},
+						"timeoutMs": {
+							"type": "number",
+							"description": "Timeout in milliseconds (default: 1000). If still pending, returns the same requestId."
+						}
+					},
+					"required": [
+						"requestId"
+					]
+				}
+			},
+			{
+				"name": "stepInto",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "stepInto",
+				"displayName": "Step Into",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Step into the next function call. Returns the new location with source code context (3 lines above and below).",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss)"
+						}
+					},
+					"required": [
+						"debugSessionId"
+					]
+				}
+			},
+			{
+				"name": "stepOver",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "stepOver",
+				"displayName": "Step Over",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Step over the current line. Returns the new location with source code context (3 lines above and below).",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss)"
+						}
+					},
+					"required": [
+						"debugSessionId"
+					]
+				}
+			},
+			{
+				"name": "stepOut",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "stepOut",
+				"displayName": "Step Out",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Step out of the current function. Returns the new location with source code context (3 lines above and below).",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss)"
+						}
+					},
+					"required": [
+						"debugSessionId"
+					]
+				}
+			},
+			{
+				"name": "runToLine",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "runToLine",
+				"displayName": "Run to Line",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Continue execution until reaching the specified line. Sets a temporary breakpoint and continues. Returns the stop location with source code context.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss)"
+						},
+						"filePath": {
+							"type": "string",
+							"description": "The absolute path to the source file"
+						},
+						"line": {
+							"type": "number",
+							"description": "The line number to run to (1-indexed)"
+						}
+					},
+					"required": [
+						"debugSessionId",
+						"filePath",
+						"line"
+					]
+				}
+			},
+			{
+				"name": "getStackTrace",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "getStackTrace",
+				"displayName": "Get Stack Trace",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Get the call stack of the paused debug session. Returns up to maxFrames frames with the top frame including source code context. If there are more frames, middle frames are skipped.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss)"
+						},
+						"maxFrames": {
+							"type": "number",
+							"description": "Maximum number of frames to return (default: 10). Top frames get priority, middle frames are skipped if needed."
+						}
+					},
+					"required": [
+						"debugSessionId"
+					]
+				}
+			},
+			{
+				"name": "getLocalVariables",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "getLocalVariables",
+				"displayName": "Get Local Variables",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Get local variables in the current stack frame of a paused debug session.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss)"
+						},
+						"maxVariables": {
+							"type": "number",
+							"description": "Maximum number of variables to return (default: 20). Long values are truncated."
+						}
+					},
+					"required": [
+						"debugSessionId"
+					]
+				}
+			},
+			{
+				"name": "getLineContext",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "getLineContext",
+				"displayName": "Get Line Context",
+				"modelDescription": "Get source code context around a specific line. Returns 3 lines above, the target line (marked with >), and 3 lines below with line numbers.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"filePath": {
+							"type": "string",
+							"description": "The absolute path to the source file"
+						},
+						"line": {
+							"type": "number",
+							"description": "The target line number (1-indexed)"
+						}
+					},
+					"required": [
+						"filePath",
+						"line"
+					]
+				}
+			},
+			{
+				"name": "setBreakpoint",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "setBreakpoint",
+				"displayName": "Set Breakpoint",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Set a breakpoint at a specific line in a source file. Returns the actual line where the breakpoint was set (may differ from requested) and the source code context.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss)"
+						},
+						"filePath": {
+							"type": "string",
+							"description": "The absolute path to the source file"
+						},
+						"line": {
+							"type": "number",
+							"description": "The line number where to set the breakpoint (1-indexed)"
+						}
+					},
+					"required": [
+						"debugSessionId",
+						"filePath",
+						"line"
+					]
+				}
+			},
+			{
+				"name": "captureDomNodeScreenshot",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "captureDomNodeScreenshot",
+				"displayName": "Capture DOM Node Screenshot",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Capture a screenshot of a DOM element in a browser debug session. The expression should evaluate to a DOM element (e.g., document.querySelector('.my-class') or a variable holding a DOM element). Returns the screenshot as an image along with element information. Only works with browser/chrome debug sessions.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss). Must be a browser/chrome debug session."
+						},
+						"expression": {
+							"type": "string",
+							"description": "A JavaScript expression that evaluates to a DOM element (e.g., 'document.querySelector(\"#myElement\")', 'document.body', or a variable name holding a DOM element)"
+						}
+					},
+					"required": [
+						"debugSessionId",
+						"expression"
+					]
+				}
+			},
+			{
+				"name": "getLoadedScripts",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "getLoadedScripts",
+				"displayName": "Get Loaded Scripts",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "List all scripts loaded in a JS debug session. Supports filtering by regex pattern and pagination. Returns script IDs (needed for getScriptSource), URLs, line counts, and source map info. Max ~40KB output, will truncate if exceeded.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss). Must be a JS debug session."
+						},
+						"searchPattern": {
+							"type": "string",
+							"description": "Optional regex pattern to filter scripts by URL (case-insensitive)"
+						},
+						"offset": {
+							"type": "number",
+							"description": "Starting index for pagination (default: 0)"
+						},
+						"limit": {
+							"type": "number",
+							"description": "Maximum number of scripts to return (default: 50)"
+						}
+					},
+					"required": [
+						"debugSessionId"
+					]
+				}
+			},
+			{
+				"name": "getScriptSource",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "getScriptSource",
+				"displayName": "Get Script Source",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "Get the source code of a loaded script with line numbers. Use getLoadedScripts first to get script IDs. Supports two modes: (1) Without searchPattern: returns lines with pagination. (2) With searchPattern: returns only matching lines with ±contextLines of context. Max ~40KB output, will truncate if exceeded.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss). Must be a JS debug session."
+						},
+						"scriptId": {
+							"type": "string",
+							"description": "The script ID from getLoadedScripts"
+						},
+						"searchPattern": {
+							"type": "string",
+							"description": "Optional regex pattern to search within the script. If provided, returns only matching lines with context."
+						},
+						"offset": {
+							"type": "number",
+							"description": "Starting line (0-indexed, without searchPattern) or starting match index (with searchPattern). Default: 0"
+						},
+						"limit": {
+							"type": "number",
+							"description": "Maximum lines to return (without searchPattern) or max matches to return (with searchPattern). Default: 100"
+						},
+						"contextLines": {
+							"type": "number",
+							"description": "Lines of context around each match when using searchPattern (default: 5)"
+						}
+					},
+					"required": [
+						"debugSessionId",
+						"scriptId"
+					]
+				}
+			},
+			{
+				"name": "launchDenoRepl",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "launchDenoRepl",
+				"displayName": "Launch Deno REPL",
+				"modelDescription": "PREFERRED for npm packages: Launch a Deno REPL in debug mode. Deno auto-fetches npm packages without manual installation! Use 'await import(\"npm:package-name\")' to import any npm package. Perfect for quick experiments with external packages. Example: const _ = await import('npm:lodash'). Requires Deno to be installed. Returns the debug session ID. Once started, evaluation and many other debugging tools become available.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"cwd": {
+							"type": "string",
+							"description": "The working directory for the REPL"
+						}
+					}
+				}
+			},
+			{
+				"name": "cdpRequest",
+				"canBeReferencedInPrompt": true,
+				"toolReferenceName": "cdpRequest",
+				"displayName": "CDP Request (Advanced)",
+				"when": "debug-value-editor.hasDebugSessions",
+				"modelDescription": "WARNING: Low-level tool - only use if other tools don't provide the needed functionality! Send a raw Chrome DevTools Protocol (CDP) request. This gives direct access to CDP methods like Runtime.*, Debugger.*, DOM.*, Network.*, etc. Refer to https://chromedevtools.github.io/devtools-protocol/ for available methods. Only works with JS debug sessions.",
+				"inputSchema": {
+					"type": "object",
+					"properties": {
+						"debugSessionId": {
+							"type": "string",
+							"description": "The ID of the debug session (format: id:N-time:DDThh:mm:ss). Must be a JS debug session."
+						},
+						"method": {
+							"type": "string",
+							"description": "The CDP method to call (e.g., 'Runtime.evaluate', 'DOM.getDocument', 'Network.enable')"
+						},
+						"params": {
+							"type": "object",
+							"description": "The parameters to pass to the CDP method (method-specific)",
+							"additionalProperties": true
+						}
+					},
+					"required": [
+						"debugSessionId",
+						"method"
+					]
+				}
 			}
 		]
 	},
 	"scripts": {
-		"build": "yarn run build-ts && yarn run build-vsix",
+		"build": "npm run build-ts && npm run build-vsix",
 		"build-ts": "tsc -p ./",
-		"build-vsix": "vsce package --yarn --out extension.vsix",
+		"build-vsix": "vsce package --out extension.vsix",
 		"vscode:prepublish": "",
 		"dev": "tsc -watch -p ./",
 		"get-types": "dts dev"
 	},
 	"devDependencies": {
 		"@types/node": "^13.13.5",
-		"@types/vscode": "^1.101.0",
+		"@types/vscode": "^1.108.0",
 		"@types/ws": "^8.5.10",
 		"@vscode/dts": "^0.4.0",
 		"@vscode/vsce": "^2.26.0",
