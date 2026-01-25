@@ -12,12 +12,19 @@ import { ErrorMessage, isDefined, setContextKey } from "./utils/utils";
 import { assumeType } from "./utils/Validator";
 import { hotReloadExportedItem } from "@hediet/node-reload";
 import { waitForState } from "./utils/observables/observableInternal/utilsCancellation";
+import { JsDebugSupport } from "./debugService/JsDebugSupport";
 
 export class Extension extends Disposable {
     private readonly _debugValueEditService = this._register(new DebugValueEditorService());
 
     constructor(context: ExtensionContext) {
         super();
+
+        // Set context key when debug sessions exist
+        this._register(autorun(reader => {
+            const sessions = this._debugValueEditService.debugSessionService.debugSessions.read(reader);
+            setContextKey('debug-value-editor.hasDebugSessions', sessions.length > 0);
+        }));
 
         this._register(startDebuggingCommand.register(async args => {
             return await debug.startDebugging(undefined, args.launchConfig, undefined);
@@ -35,7 +42,7 @@ export class Extension extends Disposable {
         visibleProperty.set(observableFromEvent(treeView.onDidChangeVisibility, () => treeView.visible), undefined);
 
         this._register(new OpenPropertyCodeLensFeature());
-        this._register(new LanguageModelTools(this._debugValueEditService.debugSessionService));
+        this._register(new LanguageModelTools(this._debugValueEditService.debugSessionService, this._debugValueEditService.debugSupport as JsDebugSupport));
         this._register(hotReloadExportedItem(ObservableDevToolsFeature, ObservableDevToolsFeature => new ObservableDevToolsFeature(this._debugValueEditService.debugSessionService, this._debugValueEditService.debugSupport)));
         this._register(editPropertyCommand.register(async (args) => {
             const expressions = args.expressions;

@@ -134,10 +134,21 @@ export class DebugSessionProxy {
 
     private readonly _onDidTerminateEmitter = new EventEmitter<void>();
 
+    public readonly startedAt: Date;
+
     constructor(
         public readonly session: DebugSession,
         public readonly numericId: number = DebugSessionProxy._nextNumericId++,
     ) {
+        this.startedAt = new Date();
+    }
+
+    public get formattedId(): string {
+        const day = this.startedAt.getDate().toString().padStart(2, '0');
+        const hours = this.startedAt.getHours().toString().padStart(2, '0');
+        const minutes = this.startedAt.getMinutes().toString().padStart(2, '0');
+        const seconds = this.startedAt.getSeconds().toString().padStart(2, '0');
+        return `id:${this.numericId}-time:${day}T${hours}:${minutes}:${seconds}`;
     }
 
     public toString(): string {
@@ -217,6 +228,48 @@ export class DebugSessionProxy {
             throw e;
         }
     }
+
+    public async getThreads(): Promise<ThreadInfo[]> {
+        const reply = await this.session.customRequest("threads", {});
+        return reply.threads as ThreadInfo[];
+    }
+
+    public async stepIn(threadId: number): Promise<void> {
+        await this.session.customRequest("stepIn", { threadId });
+    }
+
+    public async stepOut(threadId: number): Promise<void> {
+        await this.session.customRequest("stepOut", { threadId });
+    }
+
+    public async stepOver(threadId: number): Promise<void> {
+        await this.session.customRequest("next", { threadId });
+    }
+
+    public async continue(threadId: number): Promise<void> {
+        await this.session.customRequest("continue", { threadId });
+    }
+
+    public async getScopes(frameId: number): Promise<Scope[]> {
+        const reply = await this.session.customRequest("scopes", { frameId });
+        return reply.scopes as Scope[];
+    }
+
+    public async getVariables(variablesReference: number, count?: number): Promise<Variable[]> {
+        const reply = await this.session.customRequest("variables", {
+            variablesReference,
+            count,
+        });
+        return reply.variables as Variable[];
+    }
+
+    public async setBreakpoints(source: { path: string }, breakpoints: { line: number }[]): Promise<{ verified: boolean; line: number }[]> {
+        const reply = await this.session.customRequest("setBreakpoints", {
+            source,
+            breakpoints,
+        });
+        return reply.breakpoints as { verified: boolean; line: number }[];
+    }
 }
 
 export interface IUnresolvedLocation {
@@ -240,7 +293,27 @@ export interface StackTraceInfo {
 export interface StackFrame {
     id: number;
     name: string;
-    source: { name: string; path: string };
+    line: number;
+    column: number;
+    source?: { name: string; path: string };
+}
+
+export interface Variable {
+    name: string;
+    value: string;
+    type?: string;
+    variablesReference: number;
+}
+
+export interface Scope {
+    name: string;
+    variablesReference: number;
+    expensive: boolean;
+}
+
+export interface ThreadInfo {
+    id: number;
+    name: string;
 }
 
 type DapMessage =
@@ -272,9 +345,4 @@ interface ThreadsResponseDapMessage {
     body: {
         threads: ThreadInfo[];
     };
-}
-
-interface ThreadInfo {
-    id: number;
-    name: string;
 }
