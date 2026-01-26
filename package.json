@@ -614,7 +614,7 @@
 		"@types/vscode": "^1.108.0",
 		"@types/ws": "^8.5.10",
 		"@vscode/dts": "^0.4.0",
-		"@vscode/vsce": "^2.26.0",
+		"@vscode/vsce": "^3.7.1",
 		"typescript": "^5.5.0-dev.20240425"
 	},
 	"dependencies": {
@@ -623,10 +623,8 @@
 		"ws": "^8.17.1"
 	},
 	"files": [
-		"dist/**/*",
-		"node_modules/",
-		"LICENSE",
-		"docs",
-		"*.md"
+		"dist/**",
+		"docs/**",
+		"LICENSE"
 	]
 }
