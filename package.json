@@ -625,6 +625,7 @@
 	"files": [
 		"dist/**",
 		"docs/**",
-		"LICENSE"
+		"LICENSE",
+		"node_modules/"
 	]
 }
