@@ -607,7 +607,8 @@
 		"build-vsix": "vsce package --out extension.vsix",
 		"vscode:prepublish": "",
 		"dev": "tsc -watch -p ./",
-		"get-types": "dts dev"
+		"get-types": "dts dev",
+		"patch-prerelease": "node ./scripts/applyPatchForPrerelease.js"
 	},
 	"devDependencies": {
 		"@types/node": "^13.13.5",
