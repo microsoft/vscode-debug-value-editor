@@ -621,7 +621,7 @@
 	"dependencies": {
 		"@hediet/node-reload": "^0.10.0",
 		"devtools-protocol": "^0.0.1419081",
-		"ws": "^8.17.1"
+		"ws": "^8.21.0"
 	},
 	"files": [
 		"dist/**",
